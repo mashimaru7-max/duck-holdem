@@ -15,7 +15,7 @@ export function startHand(room:Room,random=Math.random){
   room.players.forEach(p=>{p.folded=false;p.allIn=false;p.streetBet=0;p.totalContribution=0;p.holeCards=[room.deck.pop()!,room.deck.pop()!];p.acted=false;p.lastAction=undefined;});
   room.dealerSeat=nextSeat(room,room.dealerSeat); if(room.players.length===2){room.sbSeat=room.dealerSeat;room.bbSeat=nextSeat(room,room.sbSeat);}else{room.sbSeat=nextSeat(room,room.dealerSeat);room.bbSeat=nextSeat(room,room.sbSeat);}
   commit(room.players.find(p=>p.seat===room.sbSeat)!,1);commit(room.players.find(p=>p.seat===room.bbSeat)!,2);
-  room.actionSeat=room.players.length===2?room.sbSeat:nextSeat(room,room.bbSeat,active);room.deadlineAt=Date.now()+30_000;
+  room.actionSeat=room.players.length===2?room.sbSeat:nextSeat(room,room.bbSeat,active);room.deadlineAt=Date.now()+60_000;
 }
 function contenders(room:Room){return room.players.filter(p=>!p.folded);}
 function bettingComplete(room:Room){const a=room.players.filter(active);return a.length===0||a.every(p=>p.acted&&p.streetBet===room.currentBet);}
@@ -31,7 +31,7 @@ export function continueAfterHand(room:Room,reset:boolean){if(room.status!=='HAN
 function reveal(room:Room,count:number){for(let i=0;i<count;i++)room.board.push(room.deck.pop()!);}
 function nextStreet(room:Room){room.players.forEach(p=>{p.streetBet=0;p.acted=false;});room.currentBet=0;room.minRaise=2;
   if(room.status==='PREFLOP'){room.status='FLOP';reveal(room,3);}else if(room.status==='FLOP'){room.status='TURN';reveal(room,1);}else if(room.status==='TURN'){room.status='RIVER';reveal(room,1);}else if(room.status==='RIVER'){room.status='SHOWDOWN';settle(room);return;}
-  const a=room.players.filter(active);if(a.length===0){while(room.board.length<5)reveal(room,1);settle(room);return;}room.actionSeat=nextSeat(room,room.dealerSeat,active);room.deadlineAt=Date.now()+30_000;
+  const a=room.players.filter(active);if(a.length===0){while(room.board.length<5)reveal(room,1);settle(room);return;}room.actionSeat=nextSeat(room,room.dealerSeat,active);room.deadlineAt=Date.now()+60_000;
 }
 export function applyAction(room:Room,playerId:string,action:ActionKind,commandId:string,expectedVersion:number){
   if(room.processed.has(commandId))return;if(expectedVersion!==room.version)throw new Error('오래된 게임 상태입니다.');const p=room.players.find(x=>x.id===playerId);if(!p||p.seat!==room.actionSeat||!active(p))throw new Error('현재 행동할 수 없습니다.');
@@ -42,6 +42,11 @@ export function applyAction(room:Room,playerId:string,action:ActionKind,commandI
   else if(action==='allin'){target=p.streetBet+p.stack;const prior=room.currentBet;commit(p,p.stack);if(target>prior){const raise=target-prior;if(raise>=room.minRaise){room.minRaise=raise;room.players.filter(x=>x.id!==p.id&&active(x)).forEach(x=>x.acted=false);}room.currentBet=target;}p.lastAction='올인';}
   else {const pot=room.players.reduce((s,x)=>s+x.totalContribution,0);const desired=action==='double'?Math.max(room.currentBet*2,room.currentBet+room.minRaise):Math.max(room.currentBet+room.minRaise,room.currentBet+Math.ceil(pot/2));target=Math.min(p.streetBet+p.stack,desired);const raise=target-room.currentBet;if(target<=room.currentBet)throw new Error('레이즈할 칩이 부족합니다.');commit(p,target-p.streetBet);if(raise>=room.minRaise){room.minRaise=raise;room.players.filter(x=>x.id!==p.id&&active(x)).forEach(x=>x.acted=false);}room.currentBet=Math.max(room.currentBet,target);p.lastAction=action==='double'?`따당 ${target}`:`하프 ${target}`;}
   p.acted=true;room.processed.add(commandId);room.version++;room.pot=room.players.reduce((s,x)=>s+x.totalContribution,0);
-  if(contenders(room).length===1){awardUncontested(room);return;}if(bettingComplete(room)){nextStreet(room);return;}room.actionSeat=nextSeat(room,p.seat,active);room.deadlineAt=Date.now()+30_000;
+  if(contenders(room).length===1){awardUncontested(room);return;}if(bettingComplete(room)){nextStreet(room);return;}room.actionSeat=nextSeat(room,p.seat,active);room.deadlineAt=Date.now()+60_000;
+}
+export function expireTurn(room:Room,now=Date.now()){
+  if(!room.actionSeat||!room.deadlineAt||room.deadlineAt>now||room.status==='WAITING'||room.status==='HAND_END')return false;
+  const player=room.players.find(p=>p.seat===room.actionSeat);if(!player)return false;
+  applyAction(room,player.id,'fold',`timeout:${room.handId}:${room.version}`,room.version);player.lastAction='시간 초과 폴드';return true;
 }
 export function viewFor(room:Room,me:Player):GameView{return{roomCode:room.code,hostId:room.hostId,status:room.status,version:room.version,handId:room.handId,dealerSeat:room.dealerSeat,sbSeat:room.sbSeat,bbSeat:room.bbSeat,actionSeat:room.actionSeat,board:room.board,pot:room.pot,currentBet:room.currentBet,minRaise:room.minRaise,deadlineAt:room.deadlineAt,players:room.players.map(p=>({...p,holeCards:undefined,sessionId:undefined,acted:undefined,cardsVisible:room.status==='HAND_END'&&!p.folded?p.holeCards:undefined})),myPlayerId:me.id,myCards:me.holeCards,result:room.result};}
