@@ -30,7 +30,7 @@ function CardView({ card, empty = false }: { card?: Card; empty?: boolean }) {
 function App() {
   const [state, setState] = useState<GameView>();
   const [screen, setScreen] = useState<"lobby" | "game">("lobby");
-  const [name, setName] = useState("행운오리");
+  const [name, setName] = useState("");
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [error, setError] = useState("");
   const [online, setOnline] = useState(false);
@@ -71,14 +71,22 @@ function App() {
   const send = (message: ClientMessage) =>
     ws.current?.readyState === 1 && ws.current.send(JSON.stringify(message));
   const cmd = () => crypto.randomUUID();
-  const join = (roomCode: string) =>
+  const nickname = name.trim();
+  const requireNickname = () => {
+    if (nickname) return true;
+    setError("입장할 닉네임을 먼저 입력해 주세요.");
+    return false;
+  };
+  const join = (roomCode: string) => {
+    if (!requireNickname()) return;
     send({
       type: "join_room",
       commandId: cmd(),
-      nickname: name,
+      nickname,
       roomCode,
       sessionId: session,
     });
+  };
 
   if (screen === "lobby" || !state)
     return (
@@ -93,18 +101,26 @@ function App() {
             <input
               value={name}
               maxLength={12}
-              onChange={(event) => setName(event.target.value)}
+              placeholder="닉네임을 입력해 주세요"
+              autoFocus
+              onChange={(event) => {
+                setName(event.target.value);
+                if (event.target.value.trim()) setError("");
+              }}
             />
           </label>
+          {!nickname && <small className="input-hint">닉네임을 입력하면 방을 만들거나 참가할 수 있어요.</small>}
           <button
-            onClick={() =>
+            disabled={!nickname}
+            onClick={() => {
+              if (!requireNickname()) return;
               send({
                 type: "create_room",
                 commandId: cmd(),
-                nickname: name,
+                nickname,
                 sessionId: session,
-              })
-            }
+              });
+            }}
           >
             새 방 만들기
           </button>
@@ -122,6 +138,7 @@ function App() {
                 <button
                   className="room-card"
                   key={room.roomCode}
+                  disabled={!nickname}
                   onClick={() => join(room.roomCode)}
                 >
                   <span className="room-duck">🏠</span>
@@ -150,6 +167,8 @@ function App() {
     (player) => player.seat === state.actionSeat,
   );
   const myTurn = turnPlayer?.id === me.id;
+  const allInRunout =
+    !turnPlayer && ["PREFLOP", "FLOP", "TURN", "RIVER"].includes(state.status);
   const secondsLeft = state.deadlineAt
     ? Math.max(0, Math.ceil((state.deadlineAt - now) / 1000))
     : 0;
@@ -222,6 +241,13 @@ function App() {
               </em>
             </div>
           )}
+          {allInRunout && (
+            <div className="turn-banner runout-banner">
+              <span>🃏 ALL-IN</span>
+              <b>커뮤니티 카드 공개 중</b>
+              <em>자동 진행</em>
+            </div>
+          )}
           <div className="poker-table">
             <div className="pot">
               <b>
@@ -232,7 +258,7 @@ function App() {
             <div className="board">
               {Array.from({ length: 5 }, (_, index) => (
                 <CardView
-                  key={index}
+                  key={`${index}-${state.board[index] ?? "empty"}`}
                   card={state.board[index]}
                   empty={!state.board[index]}
                 />
@@ -291,6 +317,8 @@ function App() {
                   : "준비 버튼을 눌러주세요"
                 : state.status === "HAND_END"
                   ? "게임 종료 · 결과를 확인하세요"
+                  : allInRunout
+                    ? "올인 · 카드를 순서대로 공개합니다"
                   : myTurn
                     ? `내 차례 · ${secondsLeft}초 안에 선택하세요`
                     : `${turnPlayer?.nickname ?? "다른 오리"}의 차례`}
