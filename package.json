@@ -1,0 +1,13 @@
+{
+  "name": "duck-holdem",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["client", "server", "shared"],
+  "scripts": {
+    "dev": "concurrently -n server,client -c yellow,cyan \"pnpm --filter @duck-holdem/server dev\" \"pnpm --filter @duck-holdem/client dev\"",
+    "build": "pnpm --filter @duck-holdem/shared build && pnpm --filter @duck-holdem/server build && pnpm --filter @duck-holdem/client build",
+    "test": "pnpm --filter @duck-holdem/server test",
+    "typecheck": "pnpm --filter @duck-holdem/shared build && pnpm --filter @duck-holdem/server typecheck && pnpm --filter @duck-holdem/client typecheck"
+  },
+  "devDependencies": {"concurrently": "^9.2.1"}
+}

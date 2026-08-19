@@ -1,0 +1,7 @@
+packages:
+  - client
+  - server
+  - shared
+dangerouslyAllowAllBuilds: true
+allowBuilds:
+  esbuild: set this to true or false
