@@ -14,12 +14,14 @@ export interface GameView {
   dealerSeat?:number; sbSeat?:number; bbSeat?:number; actionSeat?:number;
   board:Card[]; pot:number; currentBet:number; minRaise:number; deadlineAt?:number;
   players:PublicPlayer[]; myPlayerId:string; myCards:Card[];
+  result?:{winners:{playerId:string;amount:number;handName:string}[];reason:'showdown'|'fold'};
 }
 export type ClientMessage =
   | {type:'create_room'; commandId:string; nickname:string; sessionId:string}
   | {type:'join_room'; commandId:string; nickname:string; roomCode:string; sessionId:string}
   | {type:'ready'; commandId:string; ready:boolean}
   | {type:'start'; commandId:string}
+  | {type:'continue'; commandId:string; reset:boolean}
   | {type:'action'; commandId:string; expectedVersion:number; action:ActionKind};
 export type ServerMessage =
   | {type:'welcome'; playerId:string; sessionId:string}
