@@ -36,6 +36,7 @@ function App() {
   const [online, setOnline] = useState(false);
   const [now, setNow] = useState(Date.now());
   const ws = useRef<WebSocket | null>(null);
+  const stateRef = useRef<GameView | undefined>(undefined);
   const session = useMemo(
     () =>
       localStorage.duckSession ??
@@ -62,6 +63,29 @@ function App() {
       } else if (message.type === "error") setError(message.message);
     };
     return () => sock.close();
+  }, []);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+  useEffect(() => {
+    const leaveOnClose = () => {
+      const current = stateRef.current;
+      if (
+        current &&
+        (current.status === "WAITING" || current.status === "HAND_END")
+      ) {
+        ws.current?.send(
+          JSON.stringify({ type: "leave", commandId: crypto.randomUUID() }),
+        );
+      }
+      ws.current?.close();
+    };
+    window.addEventListener("pagehide", leaveOnClose);
+    window.addEventListener("beforeunload", leaveOnClose);
+    return () => {
+      window.removeEventListener("pagehide", leaveOnClose);
+      window.removeEventListener("beforeunload", leaveOnClose);
+    };
   }, []);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 250);
@@ -109,7 +133,11 @@ function App() {
               }}
             />
           </label>
-          {!nickname && <small className="input-hint">닉네임을 입력하면 방을 만들거나 참가할 수 있어요.</small>}
+          {!nickname && (
+            <small className="input-hint">
+              닉네임을 입력하면 방을 만들거나 참가할 수 있어요.
+            </small>
+          )}
           <button
             disabled={!nickname}
             onClick={() => {
@@ -199,9 +227,6 @@ function App() {
     ...winner,
     player: state.players.find((player) => player.id === winner.playerId)!,
   }));
-  const showdownPlayers = state.players.filter(
-    (player) => state.result?.reason === "showdown" && player.cardsVisible?.length,
-  );
   const survivors = state.players.filter((player) => player.stack > 0).length;
   const leave = () => {
     if (state.status === "WAITING" || state.status === "HAND_END") {
@@ -216,7 +241,7 @@ function App() {
   };
 
   return (
-    <main className="game">
+    <main className={`game ${state.status === "HAND_END" ? "hand-end" : ""}`}>
       <header>
         <button className="icon" onClick={leave}>
           ←
@@ -267,7 +292,7 @@ function App() {
             {state.players.map((player, index) => (
               <div
                 key={player.id}
-                className={`seat seat-${player.seat} ${player.id === me.id ? "local" : ""} ${player.folded ? "folded" : ""} ${state.actionSeat === player.seat ? "turn" : ""} ${state.status === "WAITING" && player.ready ? "ready" : ""}`}
+                className={`seat seat-${player.seat} ${player.id === me.id ? "local" : ""} ${player.folded ? "folded" : ""} ${state.actionSeat === player.seat ? "turn" : ""}`}
               >
                 <div className="avatar">{ducks[index % ducks.length]}</div>
                 {state.actionSeat === player.seat && (
@@ -275,13 +300,7 @@ function App() {
                 )}
                 <div className="tag">
                   <b>{player.id === me.id ? "나 (로컬)" : player.nickname}</b>
-                  <span>
-                    {state.status === "WAITING"
-                      ? player.ready
-                        ? "✓ 준비 완료"
-                        : "준비 중"
-                      : player.lastAction ?? `칩 ${player.stack}`}
-                  </span>
+                  <span>{player.lastAction ?? `칩 ${player.stack}`}</span>
                 </div>
                 {player.id !== me.id && state.status !== "WAITING" && (
                   <div className="mini-cards">
@@ -312,42 +331,34 @@ function App() {
             </div>
             <div className={`turn-pill ${myTurn ? "active" : ""}`}>
               {state.status === "WAITING"
-                ? me.ready
-                  ? "✓ 준비 완료 · 다른 오리를 기다리는 중"
-                  : "준비 버튼을 눌러주세요"
+                ? state.hostId === me.id
+                  ? "2명 이상이면 게임을 시작할 수 있습니다"
+                  : "방장이 게임을 시작할 때까지 기다려주세요"
                 : state.status === "HAND_END"
                   ? "게임 종료 · 결과를 확인하세요"
                   : allInRunout
                     ? "올인 · 카드를 순서대로 공개합니다"
-                  : myTurn
-                    ? `내 차례 · ${secondsLeft}초 안에 선택하세요`
-                    : `${turnPlayer?.nickname ?? "다른 오리"}의 차례`}
+                    : myTurn
+                      ? `내 차례 · ${secondsLeft}초 안에 선택하세요`
+                      : `${turnPlayer?.nickname ?? "다른 오리"}의 차례`}
             </div>
           </div>
           <div className="actions">
             {state.status === "WAITING" ? (
               <>
-                <button
-                  onClick={() =>
-                    send({ type: "ready", commandId: cmd(), ready: !me.ready })
-                  }
-                >
-                  {me.ready ? "준비 취소" : "준비"}
-                </button>
-                {state.hostId === me.id && (
+                {state.hostId === me.id ? (
                   <button
                     className="yellow"
+                    disabled={state.players.length < 2}
                     onClick={() => send({ type: "start", commandId: cmd() })}
                   >
                     게임 시작
                   </button>
+                ) : (
+                  <button disabled>방장의 게임 시작을 기다리는 중</button>
                 )}
               </>
-            ) : state.status === "HAND_END" ? (
-              <button className="result-wait" disabled>
-                결과가 표시되었습니다
-              </button>
-            ) : (
+            ) : state.status === "HAND_END" ? null : (
               <>
                 <button
                   className="danger"
@@ -393,42 +404,26 @@ function App() {
             )}
           </div>
           {state.status === "HAND_END" && state.result && (
-            <div className="result-backdrop">
-              <section className="result-modal">
-                <div className="trophy">🏆</div>
-                <p>이번 판 결과</p>
-                <h2>
-                  {winners.map((winner) => winner.player?.nickname).join(", ")}{" "}
-                  승리!
-                </h2>
-                {winners.map((winner) => (
-                  <div className="winner-line" key={winner.playerId}>
-                    <b>{winner.handName}</b>
-                    <span>+{winner.amount}칩</span>
-                  </div>
-                ))}
-                {showdownPlayers.length > 0 && (
-                  <section className="showdown-hands">
-                    <h3>쇼다운 카드 공개</h3>
-                    {showdownPlayers.map((player) => {
-                      const won = winners.some((winner) => winner.playerId === player.id);
-                      return (
-                        <div className={`showdown-player ${won ? "won" : "lost"}`} key={player.id}>
-                          <b>{player.nickname}</b>
-                          <div className="showdown-cards">
-                            {player.cardsVisible!.map((card) => <CardView key={card} card={card} />)}
-                          </div>
-                          <span>{won ? "승리" : "패배"}</span>
-                        </div>
-                      );
-                    })}
-                  </section>
-                )}
-                <p className="result-note">
-                  {survivors < 2
-                    ? "최종 승자가 결정되었습니다."
-                    : "카드를 확인한 뒤 다음 판을 준비하세요."}
-                </p>
+            <section className="table-result">
+              <div className="table-result-title">
+                <span>🏆</span>
+                <div>
+                  <b>
+                    {winners
+                      .map((winner) => winner.player?.nickname)
+                      .join(", ")}{" "}
+                    승리!
+                  </b>
+                  <small>
+                    {winners
+                      .map(
+                        (winner) => `${winner.handName} · +${winner.amount}칩`,
+                      )
+                      .join(" / ")}
+                  </small>
+                </div>
+              </div>
+              <div className="table-result-actions">
                 {state.hostId === me.id ? (
                   <button
                     onClick={() =>
@@ -439,16 +434,16 @@ function App() {
                       })
                     }
                   >
-                    {survivors < 2 ? "새 게임 시작" : "다음 판 준비"}
+                    {survivors < 2 ? "새 게임" : "다음 판"}
                   </button>
                 ) : (
-                  <small>방장이 다음 게임을 준비하고 있습니다.</small>
+                  <small>방장이 다음 판을 준비하고 있습니다.</small>
                 )}
                 <button className="secondary" onClick={leave}>
                   로비로
                 </button>
-              </section>
-            </div>
+              </div>
+            </section>
           )}
           {error && <p className="toast">{error}</p>}
         </section>
@@ -464,21 +459,7 @@ function App() {
                 {player.nickname}
                 {player.id === state.hostId ? " 👑" : ""}
               </b>
-              <small
-                className={
-                  state.status === "WAITING"
-                    ? player.ready
-                      ? "ready-state done"
-                      : "ready-state"
-                    : ""
-                }
-              >
-                {state.status === "WAITING"
-                  ? player.ready
-                    ? "준비 완료"
-                    : "준비 중"
-                  : player.stack}
-              </small>
+              <small>{player.stack}</small>
               <i className={player.connected ? "on" : ""} />
               {state.hostId === me.id &&
                 player.id !== me.id &&
