@@ -241,7 +241,7 @@ function App() {
             {state.players.map((player, index) => (
               <div
                 key={player.id}
-                className={`seat seat-${player.seat} ${player.id === me.id ? "local" : ""} ${player.folded ? "folded" : ""} ${state.actionSeat === player.seat ? "turn" : ""}`}
+                className={`seat seat-${player.seat} ${player.id === me.id ? "local" : ""} ${player.folded ? "folded" : ""} ${state.actionSeat === player.seat ? "turn" : ""} ${state.status === "WAITING" && player.ready ? "ready" : ""}`}
               >
                 <div className="avatar">{ducks[index % ducks.length]}</div>
                 {state.actionSeat === player.seat && (
@@ -249,7 +249,13 @@ function App() {
                 )}
                 <div className="tag">
                   <b>{player.id === me.id ? "나 (로컬)" : player.nickname}</b>
-                  <span>{player.lastAction ?? `칩 ${player.stack}`}</span>
+                  <span>
+                    {state.status === "WAITING"
+                      ? player.ready
+                        ? "✓ 준비 완료"
+                        : "준비 중"
+                      : player.lastAction ?? `칩 ${player.stack}`}
+                  </span>
                 </div>
                 {player.id !== me.id && state.status !== "WAITING" && (
                   <div className="mini-cards">
@@ -280,7 +286,9 @@ function App() {
             </div>
             <div className={`turn-pill ${myTurn ? "active" : ""}`}>
               {state.status === "WAITING"
-                ? "대기 중"
+                ? me.ready
+                  ? "✓ 준비 완료 · 다른 오리를 기다리는 중"
+                  : "준비 버튼을 눌러주세요"
                 : state.status === "HAND_END"
                   ? "게임 종료 · 결과를 확인하세요"
                   : myTurn
@@ -428,7 +436,21 @@ function App() {
                 {player.nickname}
                 {player.id === state.hostId ? " 👑" : ""}
               </b>
-              <small>{player.stack}</small>
+              <small
+                className={
+                  state.status === "WAITING"
+                    ? player.ready
+                      ? "ready-state done"
+                      : "ready-state"
+                    : ""
+                }
+              >
+                {state.status === "WAITING"
+                  ? player.ready
+                    ? "준비 완료"
+                    : "준비 중"
+                  : player.stack}
+              </small>
               <i className={player.connected ? "on" : ""} />
               {state.hostId === me.id &&
                 player.id !== me.id &&
