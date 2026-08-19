@@ -38,6 +38,7 @@ function removeFromRoom(room:Room,player:Player){
 app.get('/health',async()=>({ok:true,rooms:rooms.size}));
 app.get('/ws',{websocket:true},socket=>{
   let current:{room:Room;player:Player}|undefined;
+  (socket as any).isAlive=true;socket.on('pong',()=>{(socket as any).isAlive=true;});
   clients.add(socket);send(socket,{type:'room_list',rooms:roomList()});
   socket.on('message',(raw:Buffer)=>{
     let msg:ClientMessage;
@@ -69,10 +70,11 @@ app.get('/ws',{websocket:true},socket=>{
       if(current){if(!sockets.has(current.player.id))sockets.set(current.player.id,new Set());sockets.get(current.player.id)!.add(socket);send(socket,{type:'welcome',playerId:current.player.id,sessionId:current.player.sessionId});broadcast(current.room);}
     }catch(error){send(socket,{type:'error',commandId:msg.commandId,code:'INVALID_COMMAND',message:error instanceof Error?error.message:'요청 실패'});}
   });
-  socket.on('close',()=>{clients.delete(socket);if(current){const {room,player}=current;const playerSockets=sockets.get(player.id);playerSockets?.delete(socket);if(playerSockets?.size)return;player.connected=false;if(room.status==='WAITING'||room.status==='HAND_END'){if(room.players.some(candidate=>candidate.id===player.id))removeFromRoom(room,player);}else if(room.players.every(candidate=>!candidate.connected))deleteRoom(room);else{room.version++;broadcast(room);}}});
+  socket.on('close',()=>{clients.delete(socket);if(current){const {room,player}=current;const playerSockets=sockets.get(player.id);playerSockets?.delete(socket);if(playerSockets?.size)return;player.connected=false;if(room.status==='WAITING'||room.status==='HAND_END'){if(room.players.some(candidate=>candidate.id===player.id))removeFromRoom(room,player);}else if(room.players.every(candidate=>!candidate.connected))deleteRoom(room);else{if(room.hostId===player.id)room.hostId=room.players.filter(candidate=>candidate.connected).sort((a,b)=>a.seat-b.seat)[0].id;room.version++;broadcast(room);}}});
 });
 
 setInterval(()=>{for(const room of rooms.values())if(expireTurn(room))broadcast(room);},500);
+setInterval(()=>{for(const socket of clients){if((socket as any).isAlive===false){socket.terminate();continue;}(socket as any).isAlive=false;socket.ping();}},5_000);
 
 const port=Number(process.env.PORT??8787);
 await app.listen({port,host:'0.0.0.0'});
