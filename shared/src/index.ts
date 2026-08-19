@@ -16,14 +16,21 @@ export interface GameView {
   players:PublicPlayer[]; myPlayerId:string; myCards:Card[];
   result?:{winners:{playerId:string;amount:number;handName:string}[];reason:'showdown'|'fold'};
 }
+export interface RoomSummary {
+  roomCode:string; hostNickname:string; playerCount:number; capacity:number; status:Street;
+}
 export type ClientMessage =
   | {type:'create_room'; commandId:string; nickname:string; sessionId:string}
   | {type:'join_room'; commandId:string; nickname:string; roomCode:string; sessionId:string}
   | {type:'ready'; commandId:string; ready:boolean}
   | {type:'start'; commandId:string}
   | {type:'continue'; commandId:string; reset:boolean}
+  | {type:'kick'; commandId:string; playerId:string}
+  | {type:'leave'; commandId:string}
   | {type:'action'; commandId:string; expectedVersion:number; action:ActionKind};
 export type ServerMessage =
   | {type:'welcome'; playerId:string; sessionId:string}
+  | {type:'room_list'; rooms:RoomSummary[]}
+  | {type:'kicked'; message:string}
   | {type:'state'; state:GameView}
   | {type:'error'; commandId?:string; code:string; message:string};
