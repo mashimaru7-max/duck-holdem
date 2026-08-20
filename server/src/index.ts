@@ -3,7 +3,7 @@ import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import {randomUUID} from 'node:crypto';
 import type {ClientMessage,GameView,RoomSummary,ServerMessage} from '@duck-holdem/shared';
-import {advanceAllInRunout,applyAction,continueAfterHand,expireTurn,newPlayer,newRoom,startHand,viewFor,type Player,type Room} from './engine.js';
+import {advanceAllInRunout,applyAction,continueAfterHand,expireTurn,newPlayer,newRoom,setFoldReveal,startHand,viewFor,type Player,type Room} from './engine.js';
 
 interface Spectator{id:string;sessionId:string;nickname:string;connected:boolean}
 type Current={room:Room;member:Player|Spectator;role:'player'|'spectator'};
@@ -89,9 +89,10 @@ app.get('/ws',{websocket:true},socket=>{
           if(msg.type==='ready'){player.ready=msg.ready;room.version++;}
           else if(msg.type==='start'){if(room.hostId!==player.id)throw new Error('방장만 시작할 수 있습니다.');startHand(room);}
           else if(msg.type==='continue'){if(room.hostId!==player.id)throw new Error('방장만 다음 게임을 준비할 수 있습니다.');continueAfterHand(room,msg.reset);}
+          else if(msg.type==='reveal_cards'){setFoldReveal(room,player.id,msg.reveal);}
           else if(msg.type==='kick'){if(room.hostId!==player.id)throw new Error('방장만 강퇴할 수 있습니다.');if(room.status!=='WAITING')throw new Error('대기방에서만 강퇴할 수 있습니다.');if(msg.playerId===player.id)throw new Error('자신은 강퇴할 수 없습니다.');const target=room.players.find(candidate=>candidate.id===msg.playerId);if(!target)throw new Error('플레이어를 찾을 수 없습니다.');for(const ws of sockets.get(target.id)??[])send(ws,{type:'kicked',message:'방장에 의해 방에서 나왔습니다.'});removePlayer(room,target);}
           else if(msg.type==='join_game')throw new Error('이미 게임에 참가하고 있습니다.');
-          else applyAction(room,player.id,msg.action,msg.commandId,msg.expectedVersion);
+          else applyAction(room,player.id,msg.action,msg.commandId,msg.expectedVersion,msg.raiseTo);
         }
       }
       if(current)attachSocket(socket,current);
