@@ -29,7 +29,7 @@ function settle(room:Room){
 }
 export function continueAfterHand(room:Room,reset:boolean){if(room.status!=='HAND_END')throw new Error('종료된 핸드가 아닙니다.');room.players=room.players.filter(p=>p.connected);if(reset){room.players.forEach(p=>p.stack=100);}else{room.players=room.players.filter(p=>p.stack>0);}if(!room.players.some(p=>p.id===room.hostId)&&room.players.length)room.hostId=room.players.sort((a,b)=>a.seat-b.seat)[0].id;room.status='WAITING';room.version++;room.board=[];room.deck=[];room.pot=0;room.currentBet=0;room.minRaise=2;room.actionSeat=undefined;room.deadlineAt=undefined;room.result=undefined;room.players.forEach(p=>{p.ready=false;p.folded=false;p.allIn=false;p.streetBet=0;p.totalContribution=0;p.holeCards=[];p.acted=false;p.lastAction=undefined;});}
 function reveal(room:Room,count:number){for(let i=0;i<count;i++)room.board.push(room.deck.pop()!);}
-function nextStreet(room:Room){room.players.forEach(p=>{p.streetBet=0;p.acted=false;});room.currentBet=0;room.minRaise=2;
+function nextStreet(room:Room){room.players.forEach(p=>{p.streetBet=0;p.acted=false;p.lastAction=undefined;});room.currentBet=0;room.minRaise=2;
   if(room.status==='PREFLOP'){room.status='FLOP';reveal(room,3);}else if(room.status==='FLOP'){room.status='TURN';reveal(room,1);}else if(room.status==='TURN'){room.status='RIVER';reveal(room,1);}else if(room.status==='RIVER'){room.status='SHOWDOWN';settle(room);return;}
   const a=room.players.filter(active);if(a.length<=1){room.actionSeat=undefined;room.deadlineAt=undefined;return;}room.actionSeat=nextSeat(room,room.dealerSeat,active);room.deadlineAt=Date.now()+60_000;
 }
@@ -40,7 +40,7 @@ export function advanceAllInRunout(room:Room){
 export function applyAction(room:Room,playerId:string,action:ActionKind,commandId:string,expectedVersion:number){
   if(room.processed.has(commandId))return;if(expectedVersion!==room.version)throw new Error('오래된 게임 상태입니다.');const p=room.players.find(x=>x.id===playerId);if(!p||p.seat!==room.actionSeat||!active(p))throw new Error('현재 행동할 수 없습니다.');
   const toCall=Math.max(0,room.currentBet-p.streetBet);let target=p.streetBet;
-  if(action==='fold'){p.folded=true;p.lastAction='폴드';}
+  if(action==='fold'){if(toCall===0&&!commandId.startsWith('timeout:'))throw new Error('베팅이 없을 때는 폴드 대신 체크해 주세요.');p.folded=true;p.lastAction='폴드';}
   else if(action==='check'){if(toCall)throw new Error('체크할 수 없습니다.');p.lastAction='체크';}
   else if(action==='call'){commit(p,toCall);p.lastAction=p.allIn?'올인 콜':`콜 ${toCall}`;}
   else if(action==='allin'){target=p.streetBet+p.stack;const prior=room.currentBet;commit(p,p.stack);if(target>prior){const raise=target-prior;if(raise>=room.minRaise){room.minRaise=raise;room.players.filter(x=>x.id!==p.id&&active(x)).forEach(x=>x.acted=false);}room.currentBet=target;}p.lastAction='올인';}
