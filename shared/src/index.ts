@@ -13,15 +13,17 @@ export interface GameView {
   roomCode:string; hostId:string; status:Street; version:number; handId?:string;
   dealerSeat?:number; sbSeat?:number; bbSeat?:number; actionSeat?:number;
   board:Card[]; pot:number; currentBet:number; minRaise:number; deadlineAt?:number;
-  players:PublicPlayer[]; myPlayerId:string; myCards:Card[];
+  players:PublicPlayer[]; myPlayerId:string; myCards:Card[]; isSpectator:boolean; spectatorCount:number;
   result?:{winners:{playerId:string;amount:number;handName:string}[];reason:'showdown'|'fold'};
 }
 export interface RoomSummary {
-  roomCode:string; hostNickname:string; playerCount:number; capacity:number; status:Street;
+  roomCode:string; hostNickname:string; playerCount:number; spectatorCount:number; capacity:number; status:Street;
 }
 export type ClientMessage =
   | {type:'create_room'; commandId:string; nickname:string; sessionId:string}
   | {type:'join_room'; commandId:string; nickname:string; roomCode:string; sessionId:string}
+  | {type:'spectate_room'; commandId:string; nickname:string; roomCode:string; sessionId:string}
+  | {type:'join_game'; commandId:string}
   | {type:'ready'; commandId:string; ready:boolean}
   | {type:'start'; commandId:string}
   | {type:'continue'; commandId:string; reset:boolean}

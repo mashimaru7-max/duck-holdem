@@ -72,7 +72,7 @@ function App() {
       const current = stateRef.current;
       if (
         current &&
-        (current.status === "WAITING" || current.status === "HAND_END")
+        (current.isSpectator || current.status === "WAITING" || current.status === "HAND_END")
       ) {
         ws.current?.send(
           JSON.stringify({ type: "leave", commandId: crypto.randomUUID() }),
@@ -110,6 +110,10 @@ function App() {
       roomCode,
       sessionId: session,
     });
+  };
+  const spectate = (roomCode: string) => {
+    if (!requireNickname()) return;
+    send({type:"spectate_room",commandId:cmd(),nickname,roomCode,sessionId:session});
   };
 
   if (screen === "lobby" || !state)
@@ -154,7 +158,7 @@ function App() {
           </button>
           <section className="room-browser">
             <h2>
-              참가 가능한 방 <span>{rooms.length}</span>
+              방 목록 <span>{rooms.length}</span>
             </h2>
             {rooms.length === 0 ? (
               <div className="empty-rooms">
@@ -164,18 +168,18 @@ function App() {
             ) : (
               rooms.map((room) => (
                 <button
-                  className="room-card"
+                  className={`room-card ${room.status !== "WAITING" && room.status !== "HAND_END" ? "watch-room" : ""}`}
                   key={room.roomCode}
                   disabled={!nickname}
-                  onClick={() => join(room.roomCode)}
+                  onClick={() => room.status === "WAITING" || room.status === "HAND_END" ? join(room.roomCode) : spectate(room.roomCode)}
                 >
                   <span className="room-duck">🏠</span>
                   <span>
                     <b>{room.hostNickname}의 방</b>
-                    <small>방 번호 {room.roomCode}</small>
+                    <small>{room.status === "WAITING" ? "입장 가능" : room.status === "HAND_END" ? "게임 종료 · 입장 가능" : "게임 중 · 관전 가능"} · 방 {room.roomCode}</small>
                   </span>
                   <strong>
-                    {room.playerCount}/{room.capacity} 참가
+                    {room.status === "WAITING" || room.status === "HAND_END" ? `${room.playerCount}/${room.capacity} 참가` : `👁 ${room.spectatorCount} · 관전`}
                   </strong>
                 </button>
               ))
@@ -190,27 +194,27 @@ function App() {
       </main>
     );
 
-  const me = state.players.find((player) => player.id === state.myPlayerId)!;
+  const me = state.players.find((player) => player.id === state.myPlayerId);
   const turnPlayer = state.players.find(
     (player) => player.seat === state.actionSeat,
   );
-  const myTurn = turnPlayer?.id === me.id;
+  const myTurn = !state.isSpectator && turnPlayer?.id === state.myPlayerId;
   const allInRunout =
     !turnPlayer && ["PREFLOP", "FLOP", "TURN", "RIVER"].includes(state.status);
   const secondsLeft = state.deadlineAt
     ? Math.max(0, Math.ceil((state.deadlineAt - now) / 1000))
     : 0;
-  const toCall = Math.max(0, state.currentBet - me.streetBet);
+  const toCall = Math.max(0, state.currentBet - (me?.streetBet ?? 0));
   const pot = state.players.reduce(
     (sum, player) => sum + player.totalContribution,
     0,
   );
   const targetDouble = Math.min(
-    me.streetBet + me.stack,
+    (me?.streetBet ?? 0) + (me?.stack ?? 0),
     Math.max(state.currentBet * 2, state.currentBet + state.minRaise),
   );
   const targetHalf = Math.min(
-    me.streetBet + me.stack,
+    (me?.streetBet ?? 0) + (me?.stack ?? 0),
     Math.max(
       state.currentBet + state.minRaise,
       state.currentBet + Math.ceil(pot / 2),
@@ -229,7 +233,7 @@ function App() {
   }));
   const survivors = state.players.filter((player) => player.stack > 0).length;
   const leave = () => {
-    if (state.status === "WAITING" || state.status === "HAND_END") {
+    if (state.isSpectator || state.status === "WAITING" || state.status === "HAND_END") {
       send({ type: "leave", commandId: cmd() });
       setState(undefined);
       setScreen("lobby");
@@ -292,7 +296,7 @@ function App() {
             {state.players.map((player, index) => (
               <div
                 key={player.id}
-                className={`seat seat-${player.seat} ${player.id === me.id ? "local" : ""} ${player.folded ? "folded" : ""} ${state.actionSeat === player.seat ? "turn" : ""}`}
+                className={`seat seat-${player.seat} ${player.id === state.myPlayerId ? "local" : ""} ${player.folded ? "folded" : ""} ${state.actionSeat === player.seat ? "turn" : ""}`}
               >
                 <div className="avatar">{ducks[index % ducks.length]}</div>
                 {state.actionSeat === player.seat && (
@@ -304,11 +308,11 @@ function App() {
                   </div>
                 )}
                 <div className="tag">
-                  <b>{player.id === me.id ? "나 (로컬)" : player.nickname}</b>
+                  <b>{player.id === state.myPlayerId ? "나 (로컬)" : player.nickname}</b>
                   <span>{player.lastAction ?? "액션 대기"}</span>
                   <small>보유 칩 {player.stack}</small>
                 </div>
-                {player.id !== me.id && state.status !== "WAITING" && (
+                {player.id !== state.myPlayerId && state.status !== "WAITING" && (
                   <div className="mini-cards">
                     {player.cardsVisible?.length ? (
                       player.cardsVisible.map((card) => (
@@ -330,14 +334,15 @@ function App() {
               </div>
             ))}
           </div>
-          <div className="mine">
-            <div className="hole">
-              <CardView card={state.myCards[0]} />
-              <CardView card={state.myCards[1]} />
-            </div>
+          <div className={`mine ${state.isSpectator ? "spectator-mine" : ""}`}>
+            {!state.isSpectator && <div className="hole"><CardView card={state.myCards[0]} /><CardView card={state.myCards[1]} /></div>}
             <div className={`turn-pill ${myTurn ? "active" : ""}`}>
-              {state.status === "WAITING"
-                ? state.hostId === me.id
+              {state.isSpectator
+                ? (state.status === "HAND_END" || state.status === "WAITING") && state.players.length < 8
+                  ? "관전 종료 · 빈 좌석에 참여할 수 있습니다"
+                  : `👁 관전 중 · 관전자 ${state.spectatorCount}명`
+                : state.status === "WAITING"
+                ? state.hostId === state.myPlayerId
                   ? "2명 이상이면 게임을 시작할 수 있습니다"
                   : "방장이 게임을 시작할 때까지 기다려주세요"
                 : state.status === "HAND_END"
@@ -350,9 +355,11 @@ function App() {
             </div>
           </div>
           <div className={`actions ${myTurn ? "my-actions" : ""}`}>
-            {state.status === "WAITING" ? (
+            {state.isSpectator ? (
+              (state.status === "HAND_END" || state.status === "WAITING") && state.players.length < 8 ? <button className="yellow spectator-join" onClick={()=>send({type:"join_game",commandId:cmd()})}>게임 참여</button> : <button disabled>관전 중</button>
+            ) : state.status === "WAITING" ? (
               <>
-                {state.hostId === me.id ? (
+                {state.hostId === state.myPlayerId ? (
                   <button
                     className="yellow"
                     disabled={state.players.length < 2}
@@ -431,7 +438,7 @@ function App() {
                 </div>
               </div>
               <div className="table-result-actions">
-                {state.hostId === me.id ? (
+                {state.hostId === state.myPlayerId ? (
                   <button
                     onClick={() =>
                       send({
@@ -468,8 +475,8 @@ function App() {
               </b>
               <small>{player.stack}</small>
               <i className={player.connected ? "on" : ""} />
-              {state.hostId === me.id &&
-                player.id !== me.id &&
+              {state.hostId === state.myPlayerId &&
+                player.id !== state.myPlayerId &&
                 state.status === "WAITING" && (
                   <button
                     className="kick"
@@ -481,6 +488,7 @@ function App() {
             </div>
           ))}
         </aside>
+        {state.spectatorCount > 0 && <div className="spectator-count">👁 관전자 {state.spectatorCount}명</div>}
       </div>
     </main>
   );
