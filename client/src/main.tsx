@@ -296,11 +296,17 @@ function App() {
               >
                 <div className="avatar">{ducks[index % ducks.length]}</div>
                 {state.actionSeat === player.seat && (
-                  <div className="betting-badge">BETTING · {secondsLeft}s</div>
+                  <div className="betting-badge">▶ 현재 턴 · {secondsLeft}초</div>
+                )}
+                {player.lastAction && (
+                  <div className="action-bubble" key={`${player.id}-${player.lastAction}`}>
+                    {player.lastAction}
+                  </div>
                 )}
                 <div className="tag">
                   <b>{player.id === me.id ? "나 (로컬)" : player.nickname}</b>
-                  <span>{player.lastAction ?? `칩 ${player.stack}`}</span>
+                  <span>{player.lastAction ?? "액션 대기"}</span>
+                  <small>보유 칩 {player.stack}</small>
                 </div>
                 {player.id !== me.id && state.status !== "WAITING" && (
                   <div className="mini-cards">
@@ -343,7 +349,7 @@ function App() {
                       : `${turnPlayer?.nickname ?? "다른 오리"}의 차례`}
             </div>
           </div>
-          <div className="actions">
+          <div className={`actions ${myTurn ? "my-actions" : ""}`}>
             {state.status === "WAITING" ? (
               <>
                 {state.hostId === me.id ? (
@@ -362,7 +368,8 @@ function App() {
               <>
                 <button
                   className="danger"
-                  disabled={!myTurn}
+                  disabled={!myTurn || toCall === 0}
+                  title={toCall === 0 ? "베팅이 없을 때는 체크해 주세요" : "폴드"}
                   onClick={() => act("fold")}
                 >
                   폴드

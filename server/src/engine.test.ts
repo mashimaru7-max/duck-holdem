@@ -27,6 +27,31 @@ describe("cards", () => {
       ),
     ).toBeGreaterThan(0);
   });
+  it("스트레이트는 가장 높은 카드가 큰 패가 이긴다", () => {
+    const tenHigh = evaluate(["TS", "9D", "8H", "7C", "6S", "2D", "3C"]);
+    const nineHigh = evaluate(["9S", "8D", "7H", "6C", "5S", "AD", "2C"]);
+    const wheel = evaluate(["AS", "2D", "3H", "4C", "5S", "KD", "QC"]);
+    expect(tenHigh.name).toBe("스트레이트");
+    expect(tenHigh.values[0]).toBe(10);
+    expect(compareScore(tenHigh, nineHigh)).toBeGreaterThan(0);
+    expect(compareScore(nineHigh, wheel)).toBeGreaterThan(0);
+  });
+  it("홀덤 족보 순서를 낮은 패부터 높은 패까지 비교한다", () => {
+    const hands = [
+      evaluate(["AS", "KD", "9H", "7C", "3S"]),
+      evaluate(["AS", "AD", "9H", "7C", "3S"]),
+      evaluate(["AS", "AD", "9H", "9C", "3S"]),
+      evaluate(["AS", "AD", "AH", "7C", "3S"]),
+      evaluate(["9S", "8D", "7H", "6C", "5S"]),
+      evaluate(["AS", "JS", "8S", "5S", "2S"]),
+      evaluate(["AS", "AD", "AH", "7C", "7S"]),
+      evaluate(["AS", "AD", "AH", "AC", "3S"]),
+      evaluate(["9S", "8S", "7S", "6S", "5S"]),
+    ];
+    for (let index = 1; index < hands.length; index++) {
+      expect(compareScore(hands[index], hands[index - 1])).toBeGreaterThan(0);
+    }
+  });
 });
 describe("engine", () => {
   it("준비 단계 없이 방장이 게임을 시작하고 중복 명령을 처리한다", () => {
@@ -55,6 +80,7 @@ describe("engine", () => {
     applyAction(r, actor.id, "allin", "a", r.version);
     actor = r.players.find((p) => p.seat === r.actionSeat)!;
     applyAction(r, actor.id, "call", "b", r.version);
+    expect(r.players.reduce((sum, player) => sum + player.stack + player.totalContribution, 0)).toBe(200);
     expect(r.status).toBe("PREFLOP");
     expect(r.board).toHaveLength(0);
     expect(r.actionSeat).toBeUndefined();
@@ -70,6 +96,23 @@ describe("engine", () => {
     advanceAllInRunout(r);
     expect(r.status).toBe("HAND_END");
     expect(r.result?.reason).toBe("showdown");
+    expect(r.pot).toBe(0);
+    expect(r.players.reduce((sum, player) => sum + player.stack, 0)).toBe(200);
+  });
+  it("콜할 금액이 없으면 폴드할 수 없고 체크해야 한다", () => {
+    const a = newPlayer("A", "a", 1),
+      b = newPlayer("B", "b", 2),
+      r = newRoom(a, "1234");
+    r.players.push(b);
+    startHand(r, () => 0.6);
+    r.currentBet = 0;
+    const actor = r.players.find((player) => player.seat === r.actionSeat)!;
+    actor.streetBet = 0;
+    expect(() => applyAction(r, actor.id, "fold", "fold", r.version)).toThrow(
+      "폴드 대신 체크",
+    );
+    applyAction(r, actor.id, "check", "check", r.version);
+    expect(actor.lastAction).toBe("체크");
   });
   it("제한 시간이 지나면 서버가 자동 폴드한다", () => {
     const a = newPlayer("A", "a", 1),
@@ -84,6 +127,18 @@ describe("engine", () => {
     expect(actor.folded).toBe(true);
     expect(actor.lastAction).toBe("시간 초과 폴드");
     expect(r.status).toBe("HAND_END");
+  });
+  it("콜할 금액이 없어도 제한 시간이 지나면 자동 폴드한다", () => {
+    const a = newPlayer("A", "a", 1),
+      b = newPlayer("B", "b", 2),
+      r = newRoom(a, "1234");
+    r.players.push(b);
+    startHand(r, () => 0.45);
+    const actor = r.players.find((player) => player.seat === r.actionSeat)!;
+    r.currentBet = actor.streetBet;
+    expect(expireTurn(r, r.deadlineAt!)).toBe(true);
+    expect(actor.folded).toBe(true);
+    expect(actor.lastAction).toBe("시간 초과 폴드");
   });
   it("전원 폴드 시 결과를 기록하고 새 게임으로 전환한다", () => {
     const a = newPlayer("A", "a", 1),
