@@ -35,6 +35,7 @@ function App() {
   const [error, setError] = useState("");
   const [online, setOnline] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const [raiseTo, setRaiseTo] = useState(0);
   const ws = useRef<WebSocket | null>(null);
   const stateRef = useRef<GameView | undefined>(undefined);
   const session = useMemo(
@@ -91,6 +92,16 @@ function App() {
     const timer = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => {
+    if (!state || state.isSpectator) return;
+    const player = state.players.find(
+      (candidate) => candidate.id === state.myPlayerId,
+    );
+    if (!player) return;
+    const maximum = player.streetBet + player.stack;
+    const minimum = state.currentBet + state.minRaise;
+    setRaiseTo(Math.min(maximum, minimum));
+  }, [state?.version, state?.myPlayerId, state?.isSpectator]);
 
   const send = (message: ClientMessage) =>
     ws.current?.readyState === 1 && ws.current.send(JSON.stringify(message));
@@ -205,32 +216,28 @@ function App() {
     ? Math.max(0, Math.ceil((state.deadlineAt - now) / 1000))
     : 0;
   const toCall = Math.max(0, state.currentBet - (me?.streetBet ?? 0));
-  const pot = state.players.reduce(
-    (sum, player) => sum + player.totalContribution,
-    0,
-  );
-  const targetDouble = Math.min(
-    (me?.streetBet ?? 0) + (me?.stack ?? 0),
-    Math.max(state.currentBet * 2, state.currentBet + state.minRaise),
-  );
-  const targetHalf = Math.min(
-    (me?.streetBet ?? 0) + (me?.stack ?? 0),
-    Math.max(
-      state.currentBet + state.minRaise,
-      state.currentBet + Math.ceil(pot / 2),
-    ),
-  );
-  const act = (action: ActionKind) =>
+  const raiseMin = state.currentBet + state.minRaise;
+  const raiseMax = (me?.streetBet ?? 0) + (me?.stack ?? 0);
+  const canRaise = myTurn && raiseMax >= raiseMin;
+  const act = (action: ActionKind, amount?: number) =>
     send({
       type: "action",
       commandId: cmd(),
       expectedVersion: state.version,
       action,
+      raiseTo: amount,
     });
   const winners = (state.result?.winners ?? []).map((winner) => ({
     ...winner,
     player: state.players.find((player) => player.id === winner.playerId)!,
   }));
+  const refunds = (state.result?.refunds ?? []).map((refund) => ({
+    ...refund,
+    player: state.players.find((player) => player.id === refund.playerId),
+  }));
+  const isFoldWinner =
+    state.result?.reason === "fold" &&
+    state.result.winners[0]?.playerId === state.myPlayerId;
   const survivors = state.players.filter((player) => player.stack > 0).length;
   const leave = () => {
     if (state.isSpectator || state.status === "WAITING" || state.status === "HAND_END") {
@@ -393,20 +400,29 @@ function App() {
                 >
                   콜 {toCall}
                 </button>
-                <button
-                  className="yellow"
-                  disabled={!myTurn}
-                  onClick={() => act("double")}
-                >
-                  따당 {targetDouble}
-                </button>
-                <button
-                  className="yellow"
-                  disabled={!myTurn}
-                  onClick={() => act("half")}
-                >
-                  하프 {targetHalf}
-                </button>
+                <div className={`raise-control ${canRaise ? "enabled" : ""}`}>
+                  <label htmlFor="raise-slider">
+                    <span>레이즈 금액</span>
+                    <b>{canRaise ? raiseTo : "불가"}</b>
+                  </label>
+                  <input
+                    id="raise-slider"
+                    type="range"
+                    min={canRaise ? raiseMin : 0}
+                    max={canRaise ? raiseMax : 0}
+                    step="1"
+                    value={canRaise ? raiseTo : 0}
+                    disabled={!canRaise}
+                    onChange={(event) => setRaiseTo(Number(event.target.value))}
+                  />
+                  <button
+                    className="yellow"
+                    disabled={!canRaise}
+                    onClick={() => act("raise", raiseTo)}
+                  >
+                    레이즈 {canRaise ? raiseTo : ""}
+                  </button>
+                </div>
                 <button
                   className="danger"
                   disabled={!myTurn}
@@ -423,10 +439,8 @@ function App() {
                 <span>🏆</span>
                 <div>
                   <b>
-                    {winners
-                      .map((winner) => winner.player?.nickname)
-                      .join(", ")}{" "}
-                    승리!
+                    {winners.map((winner) => winner.player?.nickname).join(", ")}{" "}
+                    {winners.length > 1 ? "공동 승리!" : "승리!"}
                   </b>
                   <small>
                     {winners
@@ -435,11 +449,29 @@ function App() {
                       )
                       .join(" / ")}
                   </small>
+                  {refunds.length > 0 && (
+                    <small className="refund-line">
+                      {refunds.map((refund) => `${refund.player?.nickname} 미사용 베팅 ${refund.amount}칩 반환`).join(" / ")}
+                    </small>
+                  )}
                 </div>
               </div>
+              {state.result.reason === "fold" && (
+                <div className="reveal-choice">
+                  {isFoldWinner && !state.result.revealDecision ? (
+                    <><b>승리 패를 공개할까요?</b><button onClick={()=>send({type:"reveal_cards",commandId:cmd(),reveal:true})}>패 공개</button><button className="secondary" onClick={()=>send({type:"reveal_cards",commandId:cmd(),reveal:false})}>공개하지 않음</button></>
+                  ) : (
+                    <small>{state.result.revealDecision === "shown" ? "승자가 패를 공개했습니다." : state.result.revealDecision === "hidden" ? "승자가 패를 공개하지 않았습니다." : "승자가 패 공개 여부를 선택하고 있습니다."}</small>
+                  )}
+                </div>
+              )}
               <div className="table-result-actions">
                 {state.hostId === state.myPlayerId ? (
                   <button
+                    disabled={
+                      state.result.reason === "fold" &&
+                      !state.result.revealDecision
+                    }
                     onClick={() =>
                       send({
                         type: "continue",

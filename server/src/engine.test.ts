@@ -7,7 +7,9 @@ import {
   expireTurn,
   newPlayer,
   newRoom,
+  setFoldReveal,
   startHand,
+  viewFor,
 } from "./engine.js";
 describe("cards", () => {
   it("52장 덱이 모두 유일하다", () => {
@@ -69,6 +71,46 @@ describe("engine", () => {
     applyAction(r, actor.id, "call", "same", v);
     expect(r.version).toBe(after);
   });
+  it("선택한 금액으로 레이즈하고 칩과 최소 레이즈를 갱신한다", () => {
+    const a = newPlayer("A", "a", 1),
+      b = newPlayer("B", "b", 2),
+      r = newRoom(a, "1234");
+    r.players.push(b);
+    startHand(r, () => 0.35);
+    const actor = r.players.find((player) => player.seat === r.actionSeat)!;
+    const chipsBefore = r.players.reduce(
+      (sum, player) => sum + player.stack + player.totalContribution,
+      0,
+    );
+    applyAction(r, actor.id, "raise", "custom-raise", r.version, 7);
+    expect(actor.streetBet).toBe(7);
+    expect(actor.lastAction).toBe("레이즈 7");
+    expect(r.currentBet).toBe(7);
+    expect(r.minRaise).toBe(5);
+    expect(
+      r.players.reduce(
+        (sum, player) => sum + player.stack + player.totalContribution,
+        0,
+      ),
+    ).toBe(chipsBefore);
+  });
+  it("최소 금액 미만 또는 보유 칩 초과 레이즈를 거부한다", () => {
+    const a = newPlayer("A", "a", 1),
+      b = newPlayer("B", "b", 2),
+      r = newRoom(a, "1234");
+    r.players.push(b);
+    startHand(r, () => 0.35);
+    const actor = r.players.find((player) => player.seat === r.actionSeat)!;
+    const minimum = r.currentBet + r.minRaise;
+    const maximum = actor.streetBet + actor.stack;
+    expect(() =>
+      applyAction(r, actor.id, "raise", "raise-low", r.version, minimum - 1),
+    ).toThrow("최소 레이즈 금액");
+    expect(() =>
+      applyAction(r, actor.id, "raise", "raise-high", r.version, maximum + 1),
+    ).toThrow("보유 칩보다 많이");
+    expect(actor.lastAction).toBeUndefined();
+  });
   it("모두 올인하면 플랍, 턴, 리버, 결과를 단계별로 진행한다", () => {
     const a = newPlayer("A", "a", 1),
       b = newPlayer("B", "b", 2),
@@ -98,6 +140,28 @@ describe("engine", () => {
     expect(r.result?.reason).toBe("showdown");
     expect(r.pot).toBe(0);
     expect(r.players.reduce((sum, player) => sum + player.stack, 0)).toBe(200);
+  });
+  it("초과 올인 금액은 승리가 아닌 미사용 베팅 반환으로 처리한다", () => {
+    const short = newPlayer("Short", "short", 1),
+      deep = newPlayer("Deep", "deep", 2),
+      r = newRoom(short, "1234");
+    short.stack = 20;
+    deep.stack = 100;
+    r.players.push(deep);
+    startHand(r, () => 0.3);
+    let actor = r.players.find((player) => player.seat === r.actionSeat)!;
+    applyAction(r, actor.id, "allin", "deep-allin", r.version);
+    actor = r.players.find((player) => player.seat === r.actionSeat)!;
+    applyAction(r, actor.id, "call", "short-call", r.version);
+    short.holeCards = ["AS", "AD"];
+    deep.holeCards = ["KS", "KD"];
+    r.deck = ["JC", "9S", "7H", "3D", "2C"];
+    while (r.status !== "HAND_END") advanceAllInRunout(r);
+    expect(r.result?.winners).toEqual([
+      { playerId: short.id, amount: 40, handName: "원페어" },
+    ]);
+    expect(r.result?.refunds).toEqual([{ playerId: deep.id, amount: 80 }]);
+    expect(r.players.reduce((sum, player) => sum + player.stack, 0)).toBe(120);
   });
   it("콜할 금액이 없으면 폴드할 수 없고 체크해야 한다", () => {
     const a = newPlayer("A", "a", 1),
@@ -151,6 +215,10 @@ describe("engine", () => {
     applyAction(r, actor.id, "fold", "f", r.version);
     expect(r.status).toBe("HAND_END");
     expect(r.result?.winners).toHaveLength(1);
+    const winner = r.players.find((player) => player.id === r.result?.winners[0].playerId)!;
+    expect(viewFor(r, actor).players.find((player) => player.id === winner.id)?.cardsVisible).toBeUndefined();
+    setFoldReveal(r, winner.id, true);
+    expect(viewFor(r, actor).players.find((player) => player.id === winner.id)?.cardsVisible).toEqual(winner.holeCards);
     expect(r.players.reduce((s, p) => s + p.stack, 0)).toBe(200);
     continueAfterHand(r, true);
     expect(r.status).toBe("WAITING");
