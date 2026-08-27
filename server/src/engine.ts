@@ -417,6 +417,35 @@ export function applyAction(
   room.actionSeat = nextSeat(room, p.seat, active);
   room.deadlineAt = Date.now() + 60_000;
 }
+export function forceFold(room: Room, playerId: string) {
+  if (room.status === "WAITING" || room.status === "HAND_END") return false;
+  const player = room.players.find((candidate) => candidate.id === playerId);
+  if (!player || player.folded) return false;
+  player.folded = true;
+  player.acted = true;
+  player.lastAction = "게임 나감 · 폴드";
+  room.version++;
+  room.pot = room.players.reduce(
+    (sum, candidate) => sum + candidate.totalContribution,
+    0,
+  );
+  if (contenders(room).length === 1) {
+    awardUncontested(room);
+    return true;
+  }
+  if (bettingComplete(room)) {
+    if (room.players.filter(active).length <= 1) {
+      room.actionSeat = undefined;
+      room.deadlineAt = undefined;
+    } else nextStreet(room);
+    return true;
+  }
+  if (room.actionSeat === player.seat) {
+    room.actionSeat = nextSeat(room, player.seat, active);
+    room.deadlineAt = Date.now() + 60_000;
+  }
+  return true;
+}
 export function expireTurn(room: Room, now = Date.now()) {
   if (
     !room.actionSeat ||
