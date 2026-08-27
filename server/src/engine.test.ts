@@ -5,6 +5,7 @@ import {
   applyAction,
   continueAfterHand,
   expireTurn,
+  forceFold,
   newPlayer,
   newRoom,
   setFoldReveal,
@@ -225,6 +226,19 @@ describe("engine", () => {
     expect(actor.folded).toBe(true);
     expect(actor.lastAction).toBe("시간 초과 폴드");
     expect(r.status).toBe("HAND_END");
+  });
+  it("게임 중 나가면 즉시 폴드하고 남은 한 명이 승리한다", () => {
+    const a = newPlayer("A", "a", 1),
+      b = newPlayer("B", "b", 2),
+      r = newRoom(a, "1234");
+    r.players.push(b);
+    startHand(r, () => 0.4);
+    const leaving = r.players.find((player) => player.seat === r.actionSeat)!;
+    expect(forceFold(r, leaving.id)).toBe(true);
+    expect(leaving.folded).toBe(true);
+    expect(r.status).toBe("HAND_END");
+    expect(r.result?.reason).toBe("fold");
+    expect(r.result?.winners[0].playerId).not.toBe(leaving.id);
   });
   it("콜할 금액이 없어도 제한 시간이 지나면 자동 폴드한다", () => {
     const a = newPlayer("A", "a", 1),

@@ -50,11 +50,7 @@ function App() {
   );
   const ws = useRef<WebSocket | null>(null);
   const stateRef = useRef<GameView | undefined>(undefined);
-  const bgmRef = useRef<{
-    context: AudioContext;
-    oscillators: OscillatorNode[];
-    timer: number;
-  } | null>(null);
+  const bgmRef = useRef<HTMLAudioElement | null>(null);
   const session = useMemo(
     () =>
       localStorage.duckSession ??
@@ -63,39 +59,15 @@ function App() {
   );
 
   const startBgm = () => {
-    if (bgmRef.current) {
-      void bgmRef.current.context.resume();
-      return;
-    }
-    const context = new AudioContext();
-    const master = context.createGain();
-    master.gain.setValueAtTime(0.018, context.currentTime);
-    master.connect(context.destination);
-    const oscillators = [0, 1, 2].map((index) => {
-      const oscillator = context.createOscillator();
-      const gain = context.createGain();
-      oscillator.type = index === 1 ? "triangle" : "sine";
-      gain.gain.value = index === 1 ? 0.3 : 0.5;
-      oscillator.connect(gain).connect(master);
-      oscillator.start();
-      return oscillator;
-    });
-    const roots = [196, 174.61, 220, 164.81];
-    const ratios = [1, 1.25, 1.5];
-    let chord = 0;
-    const changeChord = () => {
-      oscillators.forEach((oscillator, index) =>
-        oscillator.frequency.setTargetAtTime(
-          roots[chord] * ratios[index],
-          context.currentTime,
-          1.4,
-        ),
+    if (!bgmRef.current) {
+      const audio = new Audio(
+        `${import.meta.env.BASE_URL}audio/plains-stage-bpm125.ogg`,
       );
-      chord = (chord + 1) % roots.length;
-    };
-    changeChord();
-    const timer = window.setInterval(changeChord, 5_500);
-    bgmRef.current = { context, oscillators, timer };
+      audio.loop = true;
+      audio.volume = 0.16;
+      bgmRef.current = audio;
+    }
+    void bgmRef.current.play().catch(() => undefined);
   };
 
   useEffect(() => {
@@ -124,10 +96,7 @@ function App() {
   useEffect(() => {
     const leaveOnClose = () => {
       const current = stateRef.current;
-      if (
-        current &&
-        (current.isSpectator || current.status === "WAITING" || current.status === "HAND_END")
-      ) {
+      if (current) {
         ws.current?.send(
           JSON.stringify({ type: "leave", commandId: crypto.randomUUID() }),
         );
@@ -148,7 +117,7 @@ function App() {
   useEffect(() => {
     localStorage.duckBgm = bgmEnabled ? "on" : "off";
     if (!bgmEnabled) {
-      void bgmRef.current?.context.suspend();
+      bgmRef.current?.pause();
       return;
     }
     const begin = () => startBgm();
@@ -162,9 +131,8 @@ function App() {
   useEffect(
     () => () => {
       if (!bgmRef.current) return;
-      window.clearInterval(bgmRef.current.timer);
-      bgmRef.current.oscillators.forEach((oscillator) => oscillator.stop());
-      void bgmRef.current.context.close();
+      bgmRef.current.pause();
+      bgmRef.current.removeAttribute("src");
     },
     [],
   );
@@ -324,11 +292,15 @@ function App() {
     state.result.winners[0]?.playerId === state.myPlayerId;
   const survivors = state.players.filter((player) => player.stack > 0).length;
   const leave = () => {
-    if (state.isSpectator || state.status === "WAITING" || state.status === "HAND_END") {
-      send({ type: "leave", commandId: cmd() });
-      setState(undefined);
-      setScreen("lobby");
-    } else setError("게임 중에는 방을 나갈 수 없습니다.");
+    const playing = !state.isSpectator && !["WAITING", "HAND_END"].includes(state.status);
+    if (
+      playing &&
+      !window.confirm("게임 중 나가면 즉시 폴드됩니다. 로비로 나갈까요?")
+    )
+      return;
+    send({ type: "leave", commandId: cmd() });
+    setState(undefined);
+    setScreen("lobby");
   };
   const kick = (playerId: string, nickname: string) => {
     if (window.confirm(`${nickname} 님을 방에서 내보낼까요?`))

@@ -3,7 +3,7 @@ import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import {randomUUID} from 'node:crypto';
 import type {ClientMessage,GameView,RoomSummary,ServerMessage} from '@duck-holdem/shared';
-import {advanceAllInRunout,applyAction,continueAfterHand,expireTurn,newPlayer,newRoom,setFoldReveal,startHand,viewFor,type Player,type Room} from './engine.js';
+import {advanceAllInRunout,applyAction,continueAfterHand,expireTurn,forceFold,newPlayer,newRoom,setFoldReveal,startHand,viewFor,type Player,type Room} from './engine.js';
 
 interface Spectator{id:string;sessionId:string;nickname:string;connected:boolean}
 type Current={room:Room;member:Player|Spectator;role:'player'|'spectator'};
@@ -48,7 +48,7 @@ function deleteRoom(room:Room){
 }
 function removePlayer(room:Room,player:Player){
   room.players=room.players.filter(candidate=>candidate.id!==player.id);sockets.delete(player.id);sessions.delete(player.sessionId);
-  if(room.players.length===0){deleteRoom(room);return;}
+  if(room.players.length===0||room.players.every(candidate=>!candidate.connected)){deleteRoom(room);return;}
   if(room.hostId===player.id)room.hostId=[...room.players].sort((a,b)=>a.seat-b.seat)[0].id;
   room.version++;broadcast(room);
 }
@@ -79,7 +79,7 @@ app.get('/ws',{websocket:true},socket=>{
       }else{
         if(!current)throw new Error('먼저 방에 참가하세요.');const {room,member}=current;
         if(msg.type==='leave'){
-          if(current.role==='spectator')removeSpectator(room,member as Spectator);else{if(room.status!=='WAITING'&&room.status!=='HAND_END')throw new Error('게임 중에는 나갈 수 없습니다.');removePlayer(room,member as Player);}current=undefined;send(socket,{type:'room_list',rooms:roomList()});return;
+          if(current.role==='spectator')removeSpectator(room,member as Spectator);else{const player=member as Player;if(room.status==='WAITING'||room.status==='HAND_END')removePlayer(room,player);else{player.connected=false;forceFold(room,player.id);sockets.get(player.id)?.delete(socket);sockets.delete(player.id);sessions.delete(player.sessionId);if(room.hostId===player.id)room.hostId=room.players.filter(candidate=>candidate.connected).sort((a,b)=>a.seat-b.seat)[0]?.id??room.hostId;broadcast(room);}}current=undefined;send(socket,{type:'room_list',rooms:roomList()});return;
         }
         if(current.role==='spectator'){
           if(msg.type!=='join_game')throw new Error('관전 중에는 게임 액션을 할 수 없습니다.');if((room.status!=='WAITING'&&room.status!=='HAND_END')||room.players.length>=8)throw new Error('현재 게임에 참여할 수 없습니다.');
@@ -101,7 +101,7 @@ app.get('/ws',{websocket:true},socket=>{
   socket.on('close',()=>{
     clients.delete(socket);if(!current)return;const {room,member,role}=current;const memberSockets=sockets.get(member.id);memberSockets?.delete(socket);if(memberSockets?.size)return;member.connected=false;
     if(role==='spectator'){removeSpectator(room,member as Spectator);return;}
-    const player=member as Player;if(room.status==='WAITING'||room.status==='HAND_END'){if(room.players.some(candidate=>candidate.id===player.id))removePlayer(room,player);}else if(room.players.every(candidate=>!candidate.connected))deleteRoom(room);else{if(room.hostId===player.id)room.hostId=room.players.filter(candidate=>candidate.connected).sort((a,b)=>a.seat-b.seat)[0].id;room.version++;broadcast(room);}
+    const player=member as Player;if(room.status==='WAITING'||room.status==='HAND_END'){if(room.players.some(candidate=>candidate.id===player.id))removePlayer(room,player);}else if(room.players.every(candidate=>!candidate.connected))deleteRoom(room);else{forceFold(room,player.id);if(room.hostId===player.id)room.hostId=room.players.filter(candidate=>candidate.connected).sort((a,b)=>a.seat-b.seat)[0].id;broadcast(room);}
   });
 });
 
