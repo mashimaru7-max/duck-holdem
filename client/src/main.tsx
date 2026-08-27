@@ -13,6 +13,15 @@ import "./styles.css";
 const WS = import.meta.env.VITE_WS_URL || "ws://localhost:8787/ws";
 const ducks = ["😎", "🧢", "🤓", "🎧", "⚓", "🌻", "🔥", "😴"];
 const suit: Record<string, string> = { S: "♠", H: "♥", D: "♦", C: "♣" };
+const streetName: Record<GameView["status"], string> = {
+  WAITING: "대기 중",
+  PREFLOP: "프리플랍",
+  FLOP: "플랍",
+  TURN: "턴",
+  RIVER: "리버",
+  SHOWDOWN: "쇼다운",
+  HAND_END: "게임 결과",
+};
 
 function CardView({ card, empty = false }: { card?: Card; empty?: boolean }) {
   if (empty) return <div className="card empty">🦆</div>;
@@ -286,6 +295,7 @@ function App() {
           )}
           <div className="poker-table">
             <div className="pot">
+              <small className="street-chip">{streetName[state.status]}</small>
               <b>
                 POT <em>{state.pot}</em>
               </b>
@@ -342,7 +352,15 @@ function App() {
             ))}
           </div>
           <div className={`mine ${state.isSpectator ? "spectator-mine" : ""}`}>
-            {!state.isSpectator && <div className="hole"><CardView card={state.myCards[0]} /><CardView card={state.myCards[1]} /></div>}
+            {!state.isSpectator && (
+              <div className="my-hand">
+                <span>내 카드</span>
+                <div className="hole">
+                  <CardView card={state.myCards[0]} />
+                  <CardView card={state.myCards[1]} />
+                </div>
+              </div>
+            )}
             <div className={`turn-pill ${myTurn ? "active" : ""}`}>
               {state.isSpectator
                 ? (state.status === "HAND_END" || state.status === "WAITING") && state.players.length < 8
@@ -494,7 +512,13 @@ function App() {
           {error && <p className="toast">{error}</p>}
         </section>
         <aside>
-          <h2>플레이어 {state.players.length}/8</h2>
+          <div className="player-panel-heading">
+            <div>
+              <small>{streetName[state.status]}</small>
+              <h2>플레이어 {state.players.length}/8</h2>
+            </div>
+            {turnPlayer && <span>{secondsLeft}초</span>}
+          </div>
           {state.players.map((player, index) => (
             <div
               className={`player-row ${state.actionSeat === player.seat ? "acting" : ""}`}
