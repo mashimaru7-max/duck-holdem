@@ -7,7 +7,7 @@ export type ActionKind = 'fold'|'check'|'call'|'raise'|'allin';
 export interface PublicPlayer {
   id:string; nickname:string; seat:number; stack:number; ready:boolean; connected:boolean;
   folded:boolean; allIn:boolean; streetBet:number; totalContribution:number; lastAction?:string;
-  cardsVisible?:Card[];
+  cardsVisible?:Card[]; raiseAllowed?:boolean;
 }
 export interface GameView {
   roomCode:string; hostId:string; status:Street; version:number; handId?:string;

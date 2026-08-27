@@ -111,6 +111,40 @@ describe("engine", () => {
     ).toThrow("보유 칩보다 많이");
     expect(actor.lastAction).toBeUndefined();
   });
+  it("최소 폭보다 작은 올인은 허용하지만 레이즈 권리를 다시 열지 않는다", () => {
+    const a = newPlayer("A", "a", 1),
+      b = newPlayer("B", "b", 2),
+      c = newPlayer("C", "c", 3),
+      r = newRoom(a, "1234");
+    r.players.push(b, c);
+    startHand(r, () => 0.35);
+    const actor = r.players.find((player) => player.seat === r.actionSeat)!;
+    const alreadyActed = r.players.find(
+      (player) => player.id !== actor.id && !player.folded && !player.allIn,
+    )!;
+    alreadyActed.acted = true;
+    const previousMinimumRaise = r.minRaise;
+    const shortAllInTarget = r.currentBet + r.minRaise - 1;
+    actor.stack = shortAllInTarget - actor.streetBet;
+    applyAction(r, actor.id, "allin", "short-allin", r.version);
+    expect(r.currentBet).toBe(shortAllInTarget);
+    expect(r.minRaise).toBe(previousMinimumRaise);
+    expect(alreadyActed.acted).toBe(true);
+    r.actionSeat = alreadyActed.seat;
+    expect(() =>
+      applyAction(
+        r,
+        alreadyActed.id,
+        "raise",
+        "closed-raise",
+        r.version,
+        r.currentBet + r.minRaise,
+      ),
+    ).toThrow("레이즈 권리가 다시 열리지 않습니다");
+    expect(() =>
+      applyAction(r, alreadyActed.id, "allin", "closed-allin", r.version),
+    ).toThrow("레이즈 권리가 다시 열리지 않습니다");
+  });
   it("모두 올인하면 플랍, 턴, 리버, 결과를 단계별로 진행한다", () => {
     const a = newPlayer("A", "a", 1),
       b = newPlayer("B", "b", 2),
