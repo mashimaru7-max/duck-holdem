@@ -45,14 +45,58 @@ function App() {
   const [online, setOnline] = useState(false);
   const [now, setNow] = useState(Date.now());
   const [raiseTo, setRaiseTo] = useState(0);
+  const [bgmEnabled, setBgmEnabled] = useState(
+    () => localStorage.duckBgm !== "off",
+  );
   const ws = useRef<WebSocket | null>(null);
   const stateRef = useRef<GameView | undefined>(undefined);
+  const bgmRef = useRef<{
+    context: AudioContext;
+    oscillators: OscillatorNode[];
+    timer: number;
+  } | null>(null);
   const session = useMemo(
     () =>
       localStorage.duckSession ??
       (localStorage.duckSession = crypto.randomUUID()),
     [],
   );
+
+  const startBgm = () => {
+    if (bgmRef.current) {
+      void bgmRef.current.context.resume();
+      return;
+    }
+    const context = new AudioContext();
+    const master = context.createGain();
+    master.gain.setValueAtTime(0.018, context.currentTime);
+    master.connect(context.destination);
+    const oscillators = [0, 1, 2].map((index) => {
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = index === 1 ? "triangle" : "sine";
+      gain.gain.value = index === 1 ? 0.3 : 0.5;
+      oscillator.connect(gain).connect(master);
+      oscillator.start();
+      return oscillator;
+    });
+    const roots = [196, 174.61, 220, 164.81];
+    const ratios = [1, 1.25, 1.5];
+    let chord = 0;
+    const changeChord = () => {
+      oscillators.forEach((oscillator, index) =>
+        oscillator.frequency.setTargetAtTime(
+          roots[chord] * ratios[index],
+          context.currentTime,
+          1.4,
+        ),
+      );
+      chord = (chord + 1) % roots.length;
+    };
+    changeChord();
+    const timer = window.setInterval(changeChord, 5_500);
+    bgmRef.current = { context, oscillators, timer };
+  };
 
   useEffect(() => {
     const sock = new WebSocket(WS);
@@ -101,6 +145,29 @@ function App() {
     const timer = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(timer);
   }, []);
+  useEffect(() => {
+    localStorage.duckBgm = bgmEnabled ? "on" : "off";
+    if (!bgmEnabled) {
+      void bgmRef.current?.context.suspend();
+      return;
+    }
+    const begin = () => startBgm();
+    window.addEventListener("pointerdown", begin, { once: true });
+    window.addEventListener("keydown", begin, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", begin);
+      window.removeEventListener("keydown", begin);
+    };
+  }, [bgmEnabled]);
+  useEffect(
+    () => () => {
+      if (!bgmRef.current) return;
+      window.clearInterval(bgmRef.current.timer);
+      bgmRef.current.oscillators.forEach((oscillator) => oscillator.stop());
+      void bgmRef.current.context.close();
+    },
+    [],
+  );
   useEffect(() => {
     if (!state || state.isSpectator) return;
     const player = state.players.find(
@@ -270,10 +337,23 @@ function App() {
           <h1>DUCK HOLD'EM</h1>
           <span>방 {state.roomCode}</span>
         </div>
-        <span className="connection">
-          <i className={online ? "on" : ""} />
-          {online ? "연결 양호" : "재연결 중"}
-        </span>
+        <div className="header-controls">
+          <button
+            className={`sound-toggle ${bgmEnabled ? "playing" : ""}`}
+            aria-label={bgmEnabled ? "배경음악 끄기" : "배경음악 켜기"}
+            title={bgmEnabled ? "배경음악 끄기" : "배경음악 켜기"}
+            onClick={() => {
+              if (!bgmEnabled) startBgm();
+              setBgmEnabled((enabled) => !enabled);
+            }}
+          >
+            {bgmEnabled ? "♫" : "♩"}
+          </button>
+          <span className="connection">
+            <i className={online ? "on" : ""} />
+            {online ? "연결 양호" : "재연결 중"}
+          </span>
+        </div>
       </header>
       <div className="layout">
         <section className="table-wrap">
