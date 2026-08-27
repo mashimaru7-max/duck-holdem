@@ -353,6 +353,10 @@ export function applyAction(
   } else if (action === "allin") {
     target = p.streetBet + p.stack;
     const prior = room.currentBet;
+    if (target > prior && p.acted)
+      throw new Error(
+        "짧은 올인 뒤에는 레이즈 권리가 다시 열리지 않습니다. 콜 또는 폴드를 선택해 주세요.",
+      );
     commit(p, p.stack);
     if (target > prior) {
       const raise = target - prior;
@@ -370,10 +374,17 @@ export function applyAction(
     const minimum = room.currentBet + room.minRaise;
     if (!Number.isSafeInteger(raiseTo))
       throw new Error("레이즈 금액이 올바르지 않습니다.");
+    if (p.acted)
+      throw new Error(
+        "짧은 올인 뒤에는 레이즈 권리가 다시 열리지 않습니다. 콜 또는 폴드를 선택해 주세요.",
+      );
     target = raiseTo!;
     if (maximum < minimum)
       throw new Error("최소 레이즈 칩이 부족합니다. 올인을 이용해 주세요.");
-    if (target < minimum) throw new Error(`최소 레이즈 금액은 ${minimum}입니다.`);
+    if (target < minimum)
+      throw new Error(
+        `최소 레이즈 금액은 ${minimum}입니다. 직전 정상 레이즈 폭 이상 올려야 합니다.`,
+      );
     if (target > maximum) throw new Error("보유 칩보다 많이 레이즈할 수 없습니다.");
     const raise = target - room.currentBet;
     commit(p, target - p.streetBet);
@@ -447,6 +458,7 @@ export function viewFor(room: Room, me: Player): GameView {
       ...p,
       holeCards: undefined,
       sessionId: undefined,
+      raiseAllowed: !p.acted,
       acted: undefined,
       cardsVisible:
         room.status === "HAND_END" &&

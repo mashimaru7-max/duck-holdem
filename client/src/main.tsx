@@ -175,8 +175,10 @@ function App() {
     );
     if (!player) return;
     const maximum = player.streetBet + player.stack;
-    const minimum = state.currentBet + state.minRaise;
-    setRaiseTo(Math.min(maximum, minimum));
+    const legalMinimum = state.currentBet + state.minRaise;
+    const tickMinimum = Math.ceil(legalMinimum / 5) * 5;
+    const tickMaximum = Math.floor(maximum / 5) * 5;
+    setRaiseTo(tickMaximum >= tickMinimum ? tickMinimum : 0);
   }, [state?.version, state?.myPlayerId, state?.isSpectator]);
 
   const send = (message: ClientMessage) =>
@@ -292,9 +294,15 @@ function App() {
     ? Math.max(0, Math.ceil((state.deadlineAt - now) / 1000))
     : 0;
   const toCall = Math.max(0, state.currentBet - (me?.streetBet ?? 0));
-  const raiseMin = state.currentBet + state.minRaise;
-  const raiseMax = (me?.streetBet ?? 0) + (me?.stack ?? 0);
-  const canRaise = myTurn && raiseMax >= raiseMin;
+  const legalRaiseMin = state.currentBet + state.minRaise;
+  const raiseMin = Math.ceil(legalRaiseMin / 5) * 5;
+  const raiseMax = Math.floor(
+    ((me?.streetBet ?? 0) + (me?.stack ?? 0)) / 5,
+  ) * 5;
+  const raiseRightsOpen = me?.raiseAllowed !== false;
+  const canRaise = myTurn && raiseRightsOpen && raiseMax >= raiseMin;
+  const canAllInRaise =
+    myTurn && (raiseRightsOpen || (me?.stack ?? 0) <= toCall);
   const act = (action: ActionKind, amount?: number) =>
     send({
       type: "action",
@@ -434,7 +442,7 @@ function App() {
           <div className={`mine ${state.isSpectator ? "spectator-mine" : ""}`}>
             {!state.isSpectator && (
               <div className="my-hand">
-                <span>내 카드</span>
+                <span>내 카드 · {me?.stack ?? 0}칩</span>
                 <div className="hole">
                   <CardView card={state.myCards[0]} />
                   <CardView card={state.myCards[1]} />
@@ -479,7 +487,7 @@ function App() {
             ) : state.status === "HAND_END" ? null : (
               <>
                 <button
-                  className="danger"
+                  className="danger action-fold"
                   disabled={!myTurn || toCall === 0}
                   title={toCall === 0 ? "베팅이 없을 때는 체크해 주세요" : "폴드"}
                   onClick={() => act("fold")}
@@ -487,12 +495,14 @@ function App() {
                   폴드
                 </button>
                 <button
+                  className="action-check"
                   disabled={!myTurn || toCall > 0}
                   onClick={() => act("check")}
                 >
                   체크
                 </button>
                 <button
+                  className="action-call"
                   disabled={!myTurn || toCall === 0}
                   onClick={() => act("call")}
                 >
@@ -508,11 +518,16 @@ function App() {
                     type="range"
                     min={canRaise ? raiseMin : 0}
                     max={canRaise ? raiseMax : 0}
-                    step="1"
+                    step="5"
                     value={canRaise ? raiseTo : 0}
                     disabled={!canRaise}
                     onChange={(event) => setRaiseTo(Number(event.target.value))}
                   />
+                  <div className="raise-scale" aria-hidden="true">
+                    <span>{canRaise ? raiseMin : "-"}</span>
+                    <span>5칩 단위</span>
+                    <span>{canRaise ? raiseMax : "-"}</span>
+                  </div>
                   <button
                     className="yellow"
                     disabled={!canRaise}
@@ -522,8 +537,13 @@ function App() {
                   </button>
                 </div>
                 <button
-                  className="danger"
-                  disabled={!myTurn}
+                  className="danger action-allin"
+                  disabled={!canAllInRaise}
+                  title={
+                    !raiseRightsOpen
+                      ? "짧은 올인 뒤에는 다시 레이즈할 수 없습니다"
+                      : "보유 칩 전부 베팅"
+                  }
                   onClick={() => act("allin")}
                 >
                   올인
@@ -591,7 +611,7 @@ function App() {
           )}
           {error && <p className="toast">{error}</p>}
         </section>
-        <aside>
+        <aside className="desktop-players">
           <div className="player-panel-heading">
             <div>
               <small>{streetName[state.status]}</small>
@@ -624,6 +644,30 @@ function App() {
             </div>
           ))}
         </aside>
+        <details className="mobile-players">
+          <summary>
+            <span>플레이어 {state.players.length}/8</span>
+            <small>
+              {turnPlayer ? `${turnPlayer.nickname} 차례 · ${secondsLeft}초` : streetName[state.status]}
+            </small>
+          </summary>
+          <div className="mobile-player-list">
+            {state.players.map((player, index) => (
+              <div
+                className={`mobile-player ${state.actionSeat === player.seat ? "acting" : ""}`}
+                key={player.id}
+              >
+                <span>{ducks[index % ducks.length]}</span>
+                <b>
+                  {player.nickname}
+                  {player.id === state.hostId ? " 👑" : ""}
+                </b>
+                <small>{player.stack}칩</small>
+                <i className={player.connected ? "on" : ""} />
+              </div>
+            ))}
+          </div>
+        </details>
         {state.spectatorCount > 0 && <div className="spectator-count">👁 관전자 {state.spectatorCount}명</div>}
       </div>
     </main>
