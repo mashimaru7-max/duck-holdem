@@ -271,6 +271,32 @@ function App() {
   const canRaise = myTurn && raiseRightsOpen && raiseMax >= raiseMin;
   const canAllInRaise =
     myTurn && (raiseRightsOpen || (me?.stack ?? 0) <= toCall);
+  const opponents = state.players
+    .filter((player) => player.id !== state.myPlayerId)
+    .sort(
+      (left, right) =>
+        ((left.seat - (me?.seat ?? 0) + 8) % 8) -
+        ((right.seat - (me?.seat ?? 0) + 8) % 8),
+    );
+  const opponentSeatLayouts: Record<number, number[]> = {
+    0: [],
+    1: [1],
+    2: [8, 2],
+    3: [8, 1, 2],
+    4: [7, 8, 2, 3],
+    5: [7, 8, 1, 2, 3],
+    6: [6, 7, 8, 2, 3, 4],
+    7: [6, 7, 8, 1, 2, 3, 4],
+  };
+  const visualSeats = new Map(
+    opponents.map((player, index) => [
+      player.id,
+      opponentSeatLayouts[opponents.length][index],
+    ]),
+  );
+  const tablePlayers = state.isSpectator ? state.players : opponents;
+  const visualSeatFor = (player: GameView["players"][number]) =>
+    state.isSpectator ? player.seat : visualSeats.get(player.id) ?? player.seat;
   const act = (action: ActionKind, amount?: number) =>
     send({
       type: "action",
@@ -370,12 +396,16 @@ function App() {
                 />
               ))}
             </div>
-            {state.players.map((player, index) => (
+            {tablePlayers.map((player) => {
+              const playerIndex = state.players.findIndex(
+                (candidate) => candidate.id === player.id,
+              );
+              return (
               <div
                 key={player.id}
-                className={`seat seat-${player.seat} ${player.id === state.myPlayerId ? "local" : ""} ${player.folded ? "folded" : ""} ${state.actionSeat === player.seat ? "turn" : ""}`}
+                className={`seat seat-${visualSeatFor(player)} ${player.folded ? "folded" : ""} ${state.actionSeat === player.seat ? "turn" : ""}`}
               >
-                <div className="avatar">{ducks[index % ducks.length]}</div>
+                <div className="avatar">{ducks[playerIndex % ducks.length]}</div>
                 {state.actionSeat === player.seat && (
                   <div className="betting-badge">▶ 현재 턴 · {secondsLeft}초</div>
                 )}
@@ -409,10 +439,11 @@ function App() {
                   {player.seat === state.bbSeat && <i>BB</i>}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
           <div className={`mine ${state.isSpectator ? "spectator-mine" : ""}`}>
-            {!state.isSpectator && (
+            {!state.isSpectator && state.status !== "WAITING" && (
               <div className="my-hand">
                 <span>내 카드 · {me?.stack ?? 0}칩</span>
                 <div className="hole">
