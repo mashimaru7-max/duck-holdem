@@ -289,4 +289,42 @@ describe("engine", () => {
     expect(r.status).toBe("WAITING");
     expect(r.players.every((p) => p.stack === 100 && !p.ready)).toBe(true);
   });
+  it("진행 중인 내 족보를 프리플랍부터 표시한다", () => {
+    const a = newPlayer("A", "a", 1),
+      b = newPlayer("B", "b", 2),
+      r = newRoom(a, "1234");
+    r.players.push(b);
+    startHand(r, () => 0.4);
+    a.holeCards = ["AS", "AH"];
+    expect(viewFor(r, a).myHandName).toBe("원페어");
+    r.board = ["2C", "3D", "4H"];
+    expect(viewFor(r, a).myHandName).toBe("원페어");
+  });
+  it("탈락자는 다음 토너먼트 판에 카드를 받지 않고 관전한다", () => {
+    const a = newPlayer("A", "a", 1),
+      b = newPlayer("B", "b", 2),
+      eliminated = newPlayer("C", "c", 3),
+      r = newRoom(a, "1234");
+    r.players.push(b, eliminated);
+    r.status = "HAND_END";
+    r.result = { winners: [], reason: "showdown" };
+    eliminated.stack = 0;
+    continueAfterHand(r, false);
+    expect(r.players).toContain(eliminated);
+    startHand(r, () => 0.4);
+    expect(eliminated.holeCards).toEqual([]);
+    expect(eliminated.folded).toBe(true);
+    expect(viewFor(r, eliminated).players.find((player) => player.id === eliminated.id)?.eliminated).toBe(true);
+  });
+  it("칩을 가진 마지막 한 명을 토너먼트 우승자로 표시한다", () => {
+    const winner = newPlayer("Winner", "winner", 1),
+      loser = newPlayer("Loser", "loser", 2),
+      r = newRoom(winner, "1234");
+    r.players.push(loser);
+    r.status = "HAND_END";
+    r.result = { winners: [{ playerId: winner.id, amount: 200, handName: "승리" }], reason: "showdown" };
+    winner.stack = 200;
+    loser.stack = 0;
+    expect(viewFor(r, winner).tournamentWinnerId).toBe(winner.id);
+  });
 });
