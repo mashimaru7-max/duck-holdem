@@ -50,6 +50,8 @@ function App() {
   );
   const ws = useRef<WebSocket | null>(null);
   const stateRef = useRef<GameView | undefined>(undefined);
+  const gameHistoryActive = useRef(false);
+  const exitStarted = useRef(false);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const session = useMemo(
     () =>
@@ -78,6 +80,11 @@ function App() {
     sock.onmessage = (event) => {
       const message: ServerMessage = JSON.parse(event.data);
       if (message.type === "state") {
+        if (exitStarted.current) return;
+        if (!gameHistoryActive.current) {
+          window.history.pushState({ duckHoldemGame: true }, "");
+          gameHistoryActive.current = true;
+        }
         setState(message.state);
         setScreen("game");
         setError("");
@@ -95,19 +102,40 @@ function App() {
   }, [state]);
   useEffect(() => {
     const leaveOnClose = () => {
+      if (exitStarted.current) return;
+      exitStarted.current = true;
       const current = stateRef.current;
-      if (current) {
-        ws.current?.send(
+      const socket = ws.current;
+      if (current && socket?.readyState === WebSocket.OPEN) {
+        try {
+          socket.send(
+            JSON.stringify({ type: "leave", commandId: crypto.randomUUID() }),
+          );
+        } catch {
+          // The server also folds the player when the socket closes.
+        }
+      }
+      gameHistoryActive.current = false;
+      if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+    };
+    const leaveOnBack = () => {
+      if (!gameHistoryActive.current || !stateRef.current) return;
+      exitStarted.current = true;
+      gameHistoryActive.current = false;
+      if (ws.current?.readyState === WebSocket.OPEN)
+        ws.current.send(
           JSON.stringify({ type: "leave", commandId: crypto.randomUUID() }),
         );
-      }
-      ws.current?.close();
+      setState(undefined);
+      setScreen("lobby");
     };
     window.addEventListener("pagehide", leaveOnClose);
     window.addEventListener("beforeunload", leaveOnClose);
+    window.addEventListener("popstate", leaveOnBack);
     return () => {
       window.removeEventListener("pagehide", leaveOnClose);
       window.removeEventListener("beforeunload", leaveOnClose);
+      window.removeEventListener("popstate", leaveOnBack);
     };
   }, []);
   useEffect(() => {
@@ -160,6 +188,7 @@ function App() {
   };
   const join = (roomCode: string) => {
     if (!requireNickname()) return;
+    exitStarted.current = false;
     send({
       type: "join_room",
       commandId: cmd(),
@@ -170,6 +199,7 @@ function App() {
   };
   const spectate = (roomCode: string) => {
     if (!requireNickname()) return;
+    exitStarted.current = false;
     send({type:"spectate_room",commandId:cmd(),nickname,roomCode,sessionId:session});
   };
 
@@ -203,6 +233,7 @@ function App() {
             disabled={!nickname}
             onClick={() => {
               if (!requireNickname()) return;
+              exitStarted.current = false;
               send({
                 type: "create_room",
                 commandId: cmd(),
@@ -317,16 +348,22 @@ function App() {
     state.result?.reason === "fold" &&
     state.result.winners[0]?.playerId === state.myPlayerId;
   const survivors = state.players.filter((player) => player.stack > 0).length;
+  const isPlaying =
+    !state.isSpectator && !["WAITING", "HAND_END"].includes(state.status);
   const leave = () => {
-    const playing = !state.isSpectator && !["WAITING", "HAND_END"].includes(state.status);
     if (
-      playing &&
+      isPlaying &&
       !window.confirm("게임 중 나가면 즉시 폴드됩니다. 로비로 나갈까요?")
     )
       return;
+    exitStarted.current = true;
     send({ type: "leave", commandId: cmd() });
     setState(undefined);
     setScreen("lobby");
+    if (gameHistoryActive.current) {
+      gameHistoryActive.current = false;
+      window.history.back();
+    }
   };
   const kick = (playerId: string, nickname: string) => {
     if (window.confirm(`${nickname} 님을 방에서 내보낼까요?`))
@@ -478,22 +515,29 @@ function App() {
                 </div>
               </div>
             )}
-            <div className={`turn-pill ${myTurn ? "active" : ""}`}>
-              {state.isSpectator
-                ? (state.status === "HAND_END" || state.status === "WAITING") && state.players.length < 8
-                  ? "관전 종료 · 빈 좌석에 참여할 수 있습니다"
-                  : `👁 관전 중 · 관전자 ${state.spectatorCount}명`
-                : state.status === "WAITING"
-                ? state.hostId === state.myPlayerId
-                  ? "2명 이상이면 게임을 시작할 수 있습니다"
-                  : "방장이 게임을 시작할 때까지 기다려주세요"
-                : state.status === "HAND_END"
-                  ? "게임 종료 · 결과를 확인하세요"
-                  : allInRunout
-                    ? "올인 · 카드를 순서대로 공개합니다"
-                    : myTurn
-                      ? `내 차례 · ${secondsLeft}초 안에 선택하세요`
-                      : `${turnPlayer?.nickname ?? "다른 오리"}의 차례`}
+            <div className="player-status-row">
+              <div className={`turn-pill ${myTurn ? "active" : ""}`}>
+                {state.isSpectator
+                  ? (state.status === "HAND_END" || state.status === "WAITING") && state.players.length < 8
+                    ? "관전 종료 · 빈 좌석에 참여할 수 있습니다"
+                    : `👁 관전 중 · 관전자 ${state.spectatorCount}명`
+                  : state.status === "WAITING"
+                  ? state.hostId === state.myPlayerId
+                    ? "2명 이상이면 게임을 시작할 수 있습니다"
+                    : "방장이 게임을 시작할 때까지 기다려주세요"
+                  : state.status === "HAND_END"
+                    ? "게임 종료 · 결과를 확인하세요"
+                    : allInRunout
+                      ? "올인 · 카드를 순서대로 공개합니다"
+                      : myTurn
+                        ? `내 차례 · ${secondsLeft}초 안에 선택하세요`
+                        : `${turnPlayer?.nickname ?? "다른 오리"}의 차례`}
+              </div>
+              {isPlaying && (
+                <button className="fold-leave-button" onClick={leave}>
+                  🚪 폴드 후 나가기
+                </button>
+              )}
             </div>
           </div>
           <div className={`actions action-dock ${myTurn ? "my-actions" : ""}`}>

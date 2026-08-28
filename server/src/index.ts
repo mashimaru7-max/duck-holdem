@@ -22,7 +22,7 @@ const send=(ws:any,msg:ServerMessage)=>ws.readyState===1&&ws.send(JSON.stringify
 const watchers=(room:Room)=>spectators.get(room.code)??[];
 
 function roomList():RoomSummary[]{
-  return [...rooms.values()].map(room=>({roomCode:room.code,hostNickname:room.players.find(player=>player.id===room.hostId)?.nickname??'방장 오리',playerCount:room.players.length,spectatorCount:watchers(room).length,capacity:8,status:room.status}));
+  return [...rooms.values()].map(room=>({roomCode:room.code,hostNickname:room.players.find(player=>player.id===room.hostId)?.nickname??'방장 오리',playerCount:room.players.filter(player=>player.connected).length,spectatorCount:watchers(room).length,capacity:8,status:room.status}));
 }
 function broadcastLobby(){const message:ServerMessage={type:'room_list',rooms:roomList()};for(const ws of clients)send(ws,message);}
 function scheduleRunout(room:Room){
@@ -55,6 +55,12 @@ function removePlayer(room:Room,player:Player){
 function removeSpectator(room:Room,spectator:Spectator){
   spectators.set(room.code,watchers(room).filter(candidate=>candidate.id!==spectator.id));sockets.delete(spectator.id);sessions.delete(spectator.sessionId);broadcast(room);
 }
+function departPlayer(room:Room,player:Player,socket?:any){
+  player.connected=false;forceFold(room,player.id);if(socket)sockets.get(player.id)?.delete(socket);sockets.delete(player.id);sessions.delete(player.sessionId);
+  if(room.hostId===player.id)room.hostId=room.players.filter(candidate=>candidate.connected).sort((a,b)=>a.seat-b.seat)[0]?.id??room.hostId;
+  if(room.players.every(candidate=>!candidate.connected)){deleteRoom(room);return;}
+  if(room.status==='HAND_END')removePlayer(room,player);else broadcast(room);
+}
 function attachSocket(socket:any,current:Current){
   if(!sockets.has(current.member.id))sockets.set(current.member.id,new Set());sockets.get(current.member.id)!.add(socket);
   send(socket,{type:'welcome',playerId:current.member.id,sessionId:current.member.sessionId});broadcast(current.room);
@@ -79,7 +85,7 @@ app.get('/ws',{websocket:true},socket=>{
       }else{
         if(!current)throw new Error('먼저 방에 참가하세요.');const {room,member}=current;
         if(msg.type==='leave'){
-          if(current.role==='spectator')removeSpectator(room,member as Spectator);else{const player=member as Player;if(room.status==='WAITING'||room.status==='HAND_END')removePlayer(room,player);else{player.connected=false;forceFold(room,player.id);sockets.get(player.id)?.delete(socket);sockets.delete(player.id);sessions.delete(player.sessionId);if(room.hostId===player.id)room.hostId=room.players.filter(candidate=>candidate.connected).sort((a,b)=>a.seat-b.seat)[0]?.id??room.hostId;broadcast(room);}}current=undefined;send(socket,{type:'room_list',rooms:roomList()});return;
+          if(current.role==='spectator')removeSpectator(room,member as Spectator);else{const player=member as Player;if(room.status==='WAITING'||room.status==='HAND_END')removePlayer(room,player);else departPlayer(room,player,socket);}current=undefined;send(socket,{type:'room_list',rooms:roomList()});return;
         }
         if(current.role==='spectator'){
           if(msg.type!=='join_game')throw new Error('관전 중에는 게임 액션을 할 수 없습니다.');if((room.status!=='WAITING'&&room.status!=='HAND_END')||room.players.length>=8)throw new Error('현재 게임에 참여할 수 없습니다.');
@@ -101,7 +107,7 @@ app.get('/ws',{websocket:true},socket=>{
   socket.on('close',()=>{
     clients.delete(socket);if(!current)return;const {room,member,role}=current;const memberSockets=sockets.get(member.id);memberSockets?.delete(socket);if(memberSockets?.size)return;member.connected=false;
     if(role==='spectator'){removeSpectator(room,member as Spectator);return;}
-    const player=member as Player;if(room.status==='WAITING'||room.status==='HAND_END'){if(room.players.some(candidate=>candidate.id===player.id))removePlayer(room,player);}else if(room.players.every(candidate=>!candidate.connected))deleteRoom(room);else{forceFold(room,player.id);if(room.hostId===player.id)room.hostId=room.players.filter(candidate=>candidate.connected).sort((a,b)=>a.seat-b.seat)[0].id;broadcast(room);}
+    const player=member as Player;if(room.status==='WAITING'||room.status==='HAND_END'){if(room.players.some(candidate=>candidate.id===player.id))removePlayer(room,player);}else departPlayer(room,player);
   });
 });
 

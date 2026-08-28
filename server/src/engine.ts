@@ -483,7 +483,7 @@ export function viewFor(room: Room, me: Player): GameView {
     currentBet: room.currentBet,
     minRaise: room.minRaise,
     deadlineAt: room.deadlineAt,
-    players: room.players.map((p) => ({
+    players: room.players.filter((p) => p.connected).map((p) => ({
       ...p,
       holeCards: undefined,
       sessionId: undefined,

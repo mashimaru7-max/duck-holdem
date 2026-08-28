@@ -240,6 +240,21 @@ describe("engine", () => {
     expect(r.result?.reason).toBe("fold");
     expect(r.result?.winners[0].playerId).not.toBe(leaving.id);
   });
+  it("게임 중 퇴장한 플레이어는 베팅 기록은 유지하되 화면에서 즉시 사라진다", () => {
+    const a = newPlayer("A", "a", 1),
+      b = newPlayer("B", "b", 2),
+      c = newPlayer("C", "c", 3),
+      r = newRoom(a, "1234");
+    r.players.push(b, c);
+    startHand(r, () => 0.4);
+    const leaving = r.players.find((player) => player.seat === r.actionSeat)!;
+    const contribution = leaving.totalContribution;
+    leaving.connected = false;
+    expect(forceFold(r, leaving.id)).toBe(true);
+    expect(r.players).toContain(leaving);
+    expect(leaving.totalContribution).toBe(contribution);
+    expect(viewFor(r, a).players.some((player) => player.id === leaving.id)).toBe(false);
+  });
   it("콜할 금액이 없어도 제한 시간이 지나면 자동 폴드한다", () => {
     const a = newPlayer("A", "a", 1),
       b = newPlayer("B", "b", 2),
