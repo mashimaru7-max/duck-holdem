@@ -363,22 +363,48 @@ function App() {
       </header>
       <div className="layout">
         <section className="table-wrap">
-          {turnPlayer && (
-            <div className={`turn-banner ${myTurn ? "mine-turn" : ""}`}>
-              <span>🎯 현재 베팅</span>
-              <b>{myTurn ? "내 차례" : `${turnPlayer.nickname} 차례`}</b>
-              <em className={secondsLeft <= 10 ? "urgent" : ""}>
-                {secondsLeft}초
-              </em>
+          <div className="mobile-status-row">
+            <div className="turn-banner-slot">
+              {turnPlayer && (
+                <div className={`turn-banner ${myTurn ? "mine-turn" : ""}`}>
+                  <span>🎯 현재 베팅</span>
+                  <b>{myTurn ? "내 차례" : `${turnPlayer.nickname} 차례`}</b>
+                  <em className={secondsLeft <= 10 ? "urgent" : ""}>
+                    {secondsLeft}초
+                  </em>
+                </div>
+              )}
+              {allInRunout && (
+                <div className="turn-banner runout-banner">
+                  <span>🃏 ALL-IN</span>
+                  <b>커뮤니티 카드 공개 중</b>
+                  <em>자동 진행</em>
+                </div>
+              )}
             </div>
-          )}
-          {allInRunout && (
-            <div className="turn-banner runout-banner">
-              <span>🃏 ALL-IN</span>
-              <b>커뮤니티 카드 공개 중</b>
-              <em>자동 진행</em>
-            </div>
-          )}
+            <details className="mobile-players">
+              <summary>
+                <span>플레이어 {state.players.length}/8</span>
+                <small>{turnPlayer ? `${secondsLeft}초` : streetName[state.status]}</small>
+              </summary>
+              <div className="mobile-player-list">
+                {state.players.map((player, index) => (
+                  <div
+                    className={`mobile-player ${state.actionSeat === player.seat ? "acting" : ""}`}
+                    key={player.id}
+                  >
+                    <span>{ducks[index % ducks.length]}</span>
+                    <b>
+                      {player.nickname}
+                      {player.id === state.hostId ? " 👑" : ""}
+                    </b>
+                    <small>{player.stack}칩</small>
+                    <i className={player.connected ? "on" : ""} />
+                  </div>
+                ))}
+              </div>
+            </details>
+          </div>
           <div className="poker-table">
             <div className="pot">
               <small className="street-chip">{streetName[state.status]}</small>
@@ -470,7 +496,7 @@ function App() {
                       : `${turnPlayer?.nickname ?? "다른 오리"}의 차례`}
             </div>
           </div>
-          <div className={`actions ${myTurn ? "my-actions" : ""}`}>
+          <div className={`actions action-dock ${myTurn ? "my-actions" : ""}`}>
             {state.isSpectator ? (
               (state.status === "HAND_END" || state.status === "WAITING") && state.players.length < 8 ? <button className="yellow spectator-join" onClick={()=>send({type:"join_game",commandId:cmd()})}>게임 참여</button> : <button disabled>관전 중</button>
             ) : state.status === "WAITING" ? (
@@ -531,14 +557,14 @@ function App() {
                     <span>5칩 단위</span>
                     <span>{canRaise ? raiseMax : "-"}</span>
                   </div>
-                  <button
-                    className="yellow"
-                    disabled={!canRaise}
-                    onClick={() => act("raise", raiseTo)}
-                  >
-                    레이즈 {canRaise ? raiseTo : ""}
-                  </button>
                 </div>
+                <button
+                  className="yellow action-raise"
+                  disabled={!canRaise}
+                  onClick={() => act("raise", raiseTo)}
+                >
+                  레이즈 {canRaise ? raiseTo : ""}
+                </button>
                 <button
                   className="danger action-allin"
                   disabled={!canAllInRaise}
@@ -647,30 +673,6 @@ function App() {
             </div>
           ))}
         </aside>
-        <details className="mobile-players">
-          <summary>
-            <span>플레이어 {state.players.length}/8</span>
-            <small>
-              {turnPlayer ? `${turnPlayer.nickname} 차례 · ${secondsLeft}초` : streetName[state.status]}
-            </small>
-          </summary>
-          <div className="mobile-player-list">
-            {state.players.map((player, index) => (
-              <div
-                className={`mobile-player ${state.actionSeat === player.seat ? "acting" : ""}`}
-                key={player.id}
-              >
-                <span>{ducks[index % ducks.length]}</span>
-                <b>
-                  {player.nickname}
-                  {player.id === state.hostId ? " 👑" : ""}
-                </b>
-                <small>{player.stack}칩</small>
-                <i className={player.connected ? "on" : ""} />
-              </div>
-            ))}
-          </div>
-        </details>
         {state.spectatorCount > 0 && <div className="spectator-count">👁 관전자 {state.spectatorCount}명</div>}
       </div>
     </main>
