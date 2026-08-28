@@ -289,6 +289,18 @@ describe("engine", () => {
     expect(r.status).toBe("WAITING");
     expect(r.players.every((p) => p.stack === 100 && !p.ready)).toBe(true);
   });
+  it("승자가 패 공개를 선택하지 않아도 다음 판으로 진행한다", () => {
+    const a = newPlayer("A", "a", 1),
+      b = newPlayer("B", "b", 2),
+      r = newRoom(a, "1234");
+    r.players.push(b);
+    startHand(r, () => 0.2);
+    const actor = r.players.find((player) => player.seat === r.actionSeat)!;
+    applyAction(r, actor.id, "fold", "fold-without-choice", r.version);
+    expect(r.result?.revealDecision).toBeUndefined();
+    continueAfterHand(r, false);
+    expect(r.status).toBe("WAITING");
+  });
   it("진행 중인 내 족보를 프리플랍부터 표시한다", () => {
     const a = newPlayer("A", "a", 1),
       b = newPlayer("B", "b", 2),

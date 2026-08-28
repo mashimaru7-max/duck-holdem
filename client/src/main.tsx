@@ -701,10 +701,6 @@ function App() {
               <div className="table-result-actions">
                 {state.hostId === state.myPlayerId ? (
                   <button
-                    disabled={
-                      state.result.reason === "fold" &&
-                      !state.result.revealDecision
-                    }
                     onClick={() =>
                       send({
                         type: "continue",
