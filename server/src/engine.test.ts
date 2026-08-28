@@ -161,6 +161,8 @@ describe("engine", () => {
     expect(r.status).toBe("PREFLOP");
     expect(r.board).toHaveLength(0);
     expect(r.actionSeat).toBeUndefined();
+    const runoutView = viewFor(r, actor);
+    expect(runoutView.players.every((player) => player.cardsVisible?.length === 2)).toBe(true);
     expect(advanceAllInRunout(r)).toBe(true);
     expect(r.status).toBe("FLOP");
     expect(r.board).toHaveLength(3);

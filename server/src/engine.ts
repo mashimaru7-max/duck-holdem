@@ -468,6 +468,11 @@ export function expireTurn(room: Room, now = Date.now()) {
   return true;
 }
 export function viewFor(room: Room, me: Player): GameView {
+  const revealRunoutCards =
+    ["PREFLOP", "FLOP", "TURN", "RIVER"].includes(room.status) &&
+    room.actionSeat === undefined &&
+    contenders(room).length > 1 &&
+    room.players.filter(active).length <= 1;
   return {
     roomCode: room.code,
     hostId: room.hostId,
@@ -490,12 +495,13 @@ export function viewFor(room: Room, me: Player): GameView {
       raiseAllowed: !p.acted,
       acted: undefined,
       cardsVisible:
-        room.status === "HAND_END" &&
         !p.folded &&
-        (room.result?.reason === "showdown" ||
-          (room.result?.reason === "fold" &&
-            room.result.revealDecision === "shown" &&
-            room.result.winners[0]?.playerId === p.id))
+        (revealRunoutCards ||
+          (room.status === "HAND_END" &&
+            (room.result?.reason === "showdown" ||
+              (room.result?.reason === "fold" &&
+                room.result.revealDecision === "shown" &&
+                room.result.winners[0]?.playerId === p.id))))
           ? p.holeCards
           : undefined,
     })),

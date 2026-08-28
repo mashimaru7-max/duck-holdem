@@ -11,6 +11,8 @@ import type {
 import "./styles.css";
 
 const WS = import.meta.env.VITE_WS_URL || "ws://localhost:8787/ws";
+const BIG_BLIND = 2;
+const DEFAULT_RAISE_TO = BIG_BLIND * 2;
 const ducks = ["😎", "🧢", "🤓", "🎧", "⚓", "🌻", "🔥", "😴"];
 const suit: Record<string, string> = { S: "♠", H: "♥", D: "♦", C: "♣" };
 const streetName: Record<GameView["status"], string> = {
@@ -22,6 +24,16 @@ const streetName: Record<GameView["status"], string> = {
   SHOWDOWN: "쇼다운",
   HAND_END: "게임 결과",
 };
+
+function makeRaiseOptions(minimum: number, maximum: number) {
+  if (maximum < minimum) return [];
+  const values = new Set<number>([minimum]);
+  if (DEFAULT_RAISE_TO >= minimum && DEFAULT_RAISE_TO <= maximum)
+    values.add(DEFAULT_RAISE_TO);
+  for (let amount = Math.ceil(minimum / 5) * 5; amount <= maximum; amount += 5)
+    values.add(amount);
+  return [...values].sort((left, right) => left - right);
+}
 
 function CardView({ card, empty = false }: { card?: Card; empty?: boolean }) {
   if (empty) return <div className="card empty">🦆</div>;
@@ -172,9 +184,12 @@ function App() {
     if (!player) return;
     const maximum = player.streetBet + player.stack;
     const legalMinimum = state.currentBet + state.minRaise;
-    const tickMinimum = Math.ceil(legalMinimum / 5) * 5;
-    const tickMaximum = Math.floor(maximum / 5) * 5;
-    setRaiseTo(tickMaximum >= tickMinimum ? tickMinimum : 0);
+    const options = makeRaiseOptions(legalMinimum, maximum);
+    setRaiseTo(
+      options.includes(DEFAULT_RAISE_TO)
+        ? DEFAULT_RAISE_TO
+        : (options[0] ?? 0),
+    );
   }, [state?.version, state?.myPlayerId, state?.isSpectator]);
 
   const send = (message: ClientMessage) =>
@@ -294,12 +309,14 @@ function App() {
     : 0;
   const toCall = Math.max(0, state.currentBet - (me?.streetBet ?? 0));
   const legalRaiseMin = state.currentBet + state.minRaise;
-  const raiseMin = Math.ceil(legalRaiseMin / 5) * 5;
-  const raiseMax = Math.floor(
-    ((me?.streetBet ?? 0) + (me?.stack ?? 0)) / 5,
-  ) * 5;
+  const raiseOptions = makeRaiseOptions(
+    legalRaiseMin,
+    (me?.streetBet ?? 0) + (me?.stack ?? 0),
+  );
+  const raiseMin = raiseOptions[0] ?? 0;
+  const raiseMax = raiseOptions.at(-1) ?? 0;
   const raiseRightsOpen = me?.raiseAllowed !== false;
-  const canRaise = myTurn && raiseRightsOpen && raiseMax >= raiseMin;
+  const canRaise = myTurn && raiseRightsOpen && raiseOptions.length > 0;
   const canAllInRaise =
     myTurn && (raiseRightsOpen || (me?.stack ?? 0) <= toCall);
   const opponents = state.players
@@ -589,16 +606,18 @@ function App() {
                   <input
                     id="raise-slider"
                     type="range"
-                    min={canRaise ? raiseMin : 0}
-                    max={canRaise ? raiseMax : 0}
-                    step="5"
-                    value={canRaise ? raiseTo : 0}
+                    min="0"
+                    max={canRaise ? raiseOptions.length - 1 : 0}
+                    step="1"
+                    value={canRaise ? Math.max(0, raiseOptions.indexOf(raiseTo)) : 0}
                     disabled={!canRaise}
-                    onChange={(event) => setRaiseTo(Number(event.target.value))}
+                    onChange={(event) =>
+                      setRaiseTo(raiseOptions[Number(event.target.value)] ?? raiseMin)
+                    }
                   />
                   <div className="raise-scale" aria-hidden="true">
                     <span>{canRaise ? raiseMin : "-"}</span>
-                    <span>5칩 단위</span>
+                    <span>기본 2BB · 이후 5칩</span>
                     <span>{canRaise ? raiseMax : "-"}</span>
                   </div>
                 </div>
