@@ -30,6 +30,7 @@ export interface Room {
   minRaise: number;
   handId?: string;
   deadlineAt?: number;
+  nextHandAt?: number;
   processed: Set<string>;
   result?: {
     winners: { playerId: string; amount: number; handName: string }[];
@@ -161,6 +162,7 @@ function awardUncontested(room: Room) {
   room.status = "HAND_END";
   room.actionSeat = undefined;
   room.deadlineAt = undefined;
+  room.nextHandAt = Date.now() + 10_000;
 }
 function settle(room: Room) {
   const awards = new Map<
@@ -226,6 +228,7 @@ function settle(room: Room) {
   room.status = "HAND_END";
   room.actionSeat = undefined;
   room.deadlineAt = undefined;
+  room.nextHandAt = Date.now() + 10_000;
 }
 export function setFoldReveal(room: Room, playerId: string, reveal: boolean) {
   if (room.status !== "HAND_END" || room.result?.reason !== "fold")
@@ -243,11 +246,6 @@ export function setFoldReveal(room: Room, playerId: string, reveal: boolean) {
 export function continueAfterHand(room: Room, reset: boolean) {
   if (room.status !== "HAND_END") throw new Error("종료된 핸드가 아닙니다.");
   if (room.result?.reason === "fold" && !room.result.revealDecision) {
-    const winner = room.players.find(
-      (player) => player.id === room.result?.winners[0]?.playerId,
-    );
-    if (winner?.connected)
-      throw new Error("승자가 패 공개 여부를 선택할 때까지 기다려 주세요.");
     room.result.revealDecision = "hidden";
   }
   room.players = room.players.filter((p) => p.connected);
@@ -265,6 +263,7 @@ export function continueAfterHand(room: Room, reset: boolean) {
   room.minRaise = 2;
   room.actionSeat = undefined;
   room.deadlineAt = undefined;
+  room.nextHandAt = undefined;
   room.result = undefined;
   room.players.forEach((p) => {
     p.ready = false;
@@ -509,6 +508,7 @@ export function viewFor(room: Room, me: Player): GameView {
     currentBet: room.currentBet,
     minRaise: room.minRaise,
     deadlineAt: room.deadlineAt,
+    nextHandAt: room.nextHandAt,
     players: room.players.filter((p) => p.connected).map((p) => ({
       ...p,
       holeCards: undefined,

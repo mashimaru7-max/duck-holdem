@@ -18,6 +18,7 @@ const sockets=new Map<string,Set<any>>();
 const sessions=new Map<string,Current>();
 const clients=new Set<any>();
 const runoutTimers=new Map<string,NodeJS.Timeout>();
+const nextHandTimers=new Map<string,NodeJS.Timeout>();
 const send=(ws:any,msg:ServerMessage)=>ws.readyState===1&&ws.send(JSON.stringify(msg));
 const watchers=(room:Room)=>spectators.get(room.code)??[];
 const tournamentFinished=(room:Room)=>room.status==='HAND_END'&&room.players.filter(player=>player.connected&&player.stack>0).length===1;
@@ -33,16 +34,29 @@ function scheduleRunout(room:Room){
 function spectatorView(room:Room,spectator:Spectator):GameView{
   const base=viewFor(room,room.players[0]);return{...base,myPlayerId:spectator.id,myCards:[],myHandName:undefined,isSpectator:true,spectatorCount:watchers(room).length};
 }
+function scheduleNextHand(room:Room){
+  if(room.status!=='HAND_END'||!room.nextHandAt||tournamentFinished(room)||nextHandTimers.has(room.code))return;
+  const delay=Math.max(0,room.nextHandAt-Date.now());
+  const timer=setTimeout(()=>{
+    nextHandTimers.delete(room.code);
+    if(rooms.get(room.code)!==room||room.status!=='HAND_END'||tournamentFinished(room))return;
+    continueAfterHand(room,false);
+    if(room.players.filter(player=>player.connected&&player.stack>0).length>=2)startHand(room);
+    broadcast(room);
+  },delay);
+  nextHandTimers.set(room.code,timer);
+}
 function broadcast(room:Room){
   const spectatorCount=watchers(room).length;
   for(const player of room.players)for(const ws of sockets.get(player.id)??[])send(ws,{type:'state',state:{...viewFor(room,player),spectatorCount}});
   for(const spectator of watchers(room))for(const ws of sockets.get(spectator.id)??[])send(ws,{type:'state',state:spectatorView(room,spectator)});
-  broadcastLobby();scheduleRunout(room);
+  broadcastLobby();scheduleRunout(room);scheduleNextHand(room);
 }
 function code(){let value='';do{value=String(Math.floor(1000+Math.random()*9000));}while(rooms.has(value));return value;}
 function nickname(value:string){const trimmed=value.trim().slice(0,12);if(!trimmed)throw new Error('닉네임을 입력해 주세요.');return trimmed;}
 function deleteRoom(room:Room){
   const timer=runoutTimers.get(room.code);if(timer)clearTimeout(timer);runoutTimers.delete(room.code);
+  const nextHandTimer=nextHandTimers.get(room.code);if(nextHandTimer)clearTimeout(nextHandTimer);nextHandTimers.delete(room.code);
   for(const spectator of watchers(room))for(const ws of sockets.get(spectator.id)??[])send(ws,{type:'kicked',message:'플레이어가 모두 나가 방이 종료되었습니다.'});
   for(const member of [...room.players,...watchers(room)]){sessions.delete(member.sessionId);sockets.delete(member.id);}
   spectators.delete(room.code);rooms.delete(room.code);broadcastLobby();

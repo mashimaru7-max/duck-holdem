@@ -311,6 +311,9 @@ function App() {
   const secondsLeft = state.deadlineAt
     ? Math.max(0, Math.ceil((state.deadlineAt - now) / 1000))
     : 0;
+  const nextHandSeconds = state.nextHandAt
+    ? Math.max(0, Math.ceil((state.nextHandAt - now) / 1000))
+    : 0;
   const toCall = Math.max(0, state.currentBet - (me?.streetBet ?? 0));
   const legalRaiseMin = state.currentBet + state.minRaise;
   const raiseOptions = makeRaiseOptions(
@@ -699,12 +702,8 @@ function App() {
                 </div>
               )}
               <div className="table-result-actions">
-                {state.hostId === state.myPlayerId ? (
+                {tournamentWinner && state.hostId === state.myPlayerId ? (
                   <button
-                    disabled={
-                      state.result.reason === "fold" &&
-                      !state.result.revealDecision
-                    }
                     onClick={() =>
                       send({
                         type: "continue",
@@ -713,13 +712,13 @@ function App() {
                       })
                     }
                   >
-                    {tournamentWinner ? "새 토너먼트" : "다음 판 시작"}
+                    새 토너먼트
                   </button>
                 ) : (
                   <small>
                     {tournamentWinner
                       ? "방장이 새 토너먼트를 준비하고 있습니다."
-                      : "방장이 다음 판을 시작할 때까지 기다려주세요."}
+                      : `${nextHandSeconds}초 후 다음 판이 자동으로 시작됩니다.`}
                   </small>
                 )}
                 <button className="secondary" onClick={leave}>
