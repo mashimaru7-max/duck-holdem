@@ -12,7 +12,7 @@ export interface PublicPlayer {
 export interface GameView {
   roomCode:string; hostId:string; status:Street; version:number; handId?:string;
   dealerSeat?:number; sbSeat?:number; bbSeat?:number; actionSeat?:number;
-  board:Card[]; pot:number; currentBet:number; minRaise:number; deadlineAt?:number;
+  board:Card[]; pot:number; currentBet:number; minRaise:number; deadlineAt?:number; nextHandAt?:number;
   players:PublicPlayer[]; myPlayerId:string; myCards:Card[]; isSpectator:boolean; spectatorCount:number;
   myHandName?:string; tournamentWinnerId?:string;
   result?:{winners:{playerId:string;amount:number;handName:string}[];refunds?:{playerId:string;amount:number}[];reason:'showdown'|'fold';revealDecision?:'shown'|'hidden'};

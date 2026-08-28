@@ -298,8 +298,10 @@ describe("engine", () => {
     const actor = r.players.find((player) => player.seat === r.actionSeat)!;
     applyAction(r, actor.id, "fold", "fold-without-choice", r.version);
     expect(r.result?.revealDecision).toBeUndefined();
+    expect(r.nextHandAt).toBeGreaterThan(Date.now());
     continueAfterHand(r, false);
     expect(r.status).toBe("WAITING");
+    expect(r.nextHandAt).toBeUndefined();
   });
   it("진행 중인 내 족보를 프리플랍부터 표시한다", () => {
     const a = newPlayer("A", "a", 1),
