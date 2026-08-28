@@ -35,6 +35,7 @@
 
 /* PR14: independent desktop and portrait play surfaces. */
 .mobile-status-row{position:relative}.turn-banner-slot{min-height:55px;display:grid;place-items:center}.action-dock{position:relative;z-index:20}.betting-badge{display:none}
+.player-status-row{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}.player-status-row .turn-pill{margin-left:0;margin-right:0}.fold-leave-button{padding:8px 13px;border:2px solid #ff8a82;border-radius:14px;background:#fff;color:#c73535;box-shadow:0 4px 10px #8c343326;font-size:12px}.fold-leave-button:hover{background:#fff1ef}
 
 @media(min-width:761px){
   .game{padding:10px 18px 18px;min-height:100dvh;overflow-x:hidden}
@@ -107,6 +108,7 @@
   .seat-1{left:50%;top:8%}.seat-2{left:76%;top:16%}.seat-3{left:89%;top:39%}.seat-4{left:78%;top:70%}.seat-5{left:50%;top:80%}.seat-6{left:22%;top:70%}.seat-7{left:11%;top:39%}.seat-8{left:24%;top:16%}
   .mine{order:3;min-height:0;margin:8px 0 0;align-content:start}.mine .card{width:58px}.my-hand>span{padding:3px 11px}
   .mine .turn-pill{align-self:start}
+  .player-status-row{gap:5px}.fold-leave-button{min-height:34px;padding:6px 9px;font-size:11px}
   .turn-pill{margin:6px auto 2px;padding:7px 13px;font-size:12px}
   .action-dock{order:4;position:sticky;bottom:0;display:grid;width:100%;margin:8px 0 0;padding:8px 6px calc(8px + env(safe-area-inset-bottom));border:2px solid #f2c62e;border-radius:18px;background:#fffdf2f5;box-shadow:0 -8px 24px #0c315e22;backdrop-filter:blur(10px)}
   .action-dock.my-actions{margin-top:8px;padding:8px 6px calc(8px + env(safe-area-inset-bottom))}
