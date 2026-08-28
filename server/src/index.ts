@@ -20,6 +20,7 @@ const clients=new Set<any>();
 const runoutTimers=new Map<string,NodeJS.Timeout>();
 const send=(ws:any,msg:ServerMessage)=>ws.readyState===1&&ws.send(JSON.stringify(msg));
 const watchers=(room:Room)=>spectators.get(room.code)??[];
+const tournamentFinished=(room:Room)=>room.status==='HAND_END'&&room.players.filter(player=>player.connected&&player.stack>0).length===1;
 
 function roomList():RoomSummary[]{
   return [...rooms.values()].map(room=>({roomCode:room.code,hostNickname:room.players.find(player=>player.id===room.hostId)?.nickname??'방장 오리',playerCount:room.players.filter(player=>player.connected).length,spectatorCount:watchers(room).length,capacity:8,status:room.status}));
@@ -30,7 +31,7 @@ function scheduleRunout(room:Room){
   const timer=setTimeout(()=>{runoutTimers.delete(room.code);if(rooms.get(room.code)===room&&advanceAllInRunout(room))broadcast(room);},1_100);runoutTimers.set(room.code,timer);
 }
 function spectatorView(room:Room,spectator:Spectator):GameView{
-  const base=viewFor(room,room.players[0]);return{...base,myPlayerId:spectator.id,myCards:[],isSpectator:true,spectatorCount:watchers(room).length};
+  const base=viewFor(room,room.players[0]);return{...base,myPlayerId:spectator.id,myCards:[],myHandName:undefined,isSpectator:true,spectatorCount:watchers(room).length};
 }
 function broadcast(room:Room){
   const spectatorCount=watchers(room).length;
@@ -78,7 +79,7 @@ app.get('/ws',{websocket:true},socket=>{
       if(msg.type==='create_room'){
         const playerNickname=nickname(msg.nickname);const player=newPlayer(playerNickname,msg.sessionId||randomUUID(),1);const room=newRoom(player,code());rooms.set(room.code,room);spectators.set(room.code,[]);current={room,member:player,role:'player'};sessions.set(player.sessionId,current);
       }else if(msg.type==='join_room'){
-        const room=rooms.get(msg.roomCode);if(!room||(room.status!=='WAITING'&&room.status!=='HAND_END')||room.players.length>=8)throw new Error('참가할 수 없는 방입니다.');const playerNickname=nickname(msg.nickname);
+        const room=rooms.get(msg.roomCode);if(!room||room.status!=='WAITING'||room.players.length>=8)throw new Error('참가할 수 없는 방입니다.');const playerNickname=nickname(msg.nickname);
         const seat=Array.from({length:8},(_,index)=>index+1).find(value=>!room.players.some(player=>player.seat===value))!;const player=newPlayer(playerNickname,msg.sessionId,seat);room.players.push(player);current={room,member:player,role:'player'};sessions.set(player.sessionId,current);room.version++;
       }else if(msg.type==='spectate_room'){
         const room=rooms.get(msg.roomCode);if(!room||room.status==='WAITING')throw new Error('관전할 수 없는 방입니다.');const spectatorNickname=nickname(msg.nickname);const spectator:Spectator={id:randomUUID(),sessionId:msg.sessionId,nickname:spectatorNickname,connected:true};spectators.set(room.code,[...watchers(room),spectator]);current={room,member:spectator,role:'spectator'};sessions.set(spectator.sessionId,current);
@@ -88,13 +89,13 @@ app.get('/ws',{websocket:true},socket=>{
           if(current.role==='spectator')removeSpectator(room,member as Spectator);else{const player=member as Player;if(room.status==='WAITING'||room.status==='HAND_END')removePlayer(room,player);else departPlayer(room,player,socket);}current=undefined;send(socket,{type:'room_list',rooms:roomList()});return;
         }
         if(current.role==='spectator'){
-          if(msg.type!=='join_game')throw new Error('관전 중에는 게임 액션을 할 수 없습니다.');if((room.status!=='WAITING'&&room.status!=='HAND_END')||room.players.length>=8)throw new Error('현재 게임에 참여할 수 없습니다.');
-          const spectator=member as Spectator;const seat=Array.from({length:8},(_,index)=>index+1).find(value=>!room.players.some(player=>player.seat===value))!;const player=newPlayer(spectator.nickname,spectator.sessionId,seat);player.id=spectator.id;spectators.set(room.code,watchers(room).filter(candidate=>candidate.id!==spectator.id));room.players.push(player);current={room,member:player,role:'player'};sessions.set(player.sessionId,current);room.version++;
+          if(msg.type!=='join_game')throw new Error('관전 중에는 게임 액션을 할 수 없습니다.');if(!tournamentFinished(room)||room.players.length>=8)throw new Error('새 토너먼트가 시작될 때만 참여할 수 있습니다.');
+          const spectator=member as Spectator;const seat=Array.from({length:8},(_,index)=>index+1).find(value=>!room.players.some(player=>player.seat===value))!;const player=newPlayer(spectator.nickname,spectator.sessionId,seat);player.id=spectator.id;player.stack=0;player.folded=true;player.allIn=true;spectators.set(room.code,watchers(room).filter(candidate=>candidate.id!==spectator.id));room.players.push(player);current={room,member:player,role:'player'};sessions.set(player.sessionId,current);room.version++;
         }else{
           const player=member as Player;if(!room.players.some(candidate=>candidate.id===player.id)){current=undefined;throw new Error('더 이상 이 방에 참가하고 있지 않습니다.');}
           if(msg.type==='ready'){player.ready=msg.ready;room.version++;}
           else if(msg.type==='start'){if(room.hostId!==player.id)throw new Error('방장만 시작할 수 있습니다.');startHand(room);}
-          else if(msg.type==='continue'){if(room.hostId!==player.id)throw new Error('방장만 다음 게임을 준비할 수 있습니다.');continueAfterHand(room,msg.reset);}
+          else if(msg.type==='continue'){if(room.hostId!==player.id)throw new Error('방장만 다음 게임을 준비할 수 있습니다.');continueAfterHand(room,msg.reset);if(room.players.filter(candidate=>candidate.connected&&candidate.stack>0).length>=2)startHand(room);}
           else if(msg.type==='reveal_cards'){setFoldReveal(room,player.id,msg.reveal);}
           else if(msg.type==='kick'){if(room.hostId!==player.id)throw new Error('방장만 강퇴할 수 있습니다.');if(room.status!=='WAITING')throw new Error('대기방에서만 강퇴할 수 있습니다.');if(msg.playerId===player.id)throw new Error('자신은 강퇴할 수 없습니다.');const target=room.players.find(candidate=>candidate.id===msg.playerId);if(!target)throw new Error('플레이어를 찾을 수 없습니다.');for(const ws of sockets.get(target.id)??[])send(ws,{type:'kicked',message:'방장에 의해 방에서 나왔습니다.'});removePlayer(room,target);}
           else if(msg.type==='join_game')throw new Error('이미 게임에 참가하고 있습니다.');

@@ -36,6 +36,7 @@
 /* PR14: independent desktop and portrait play surfaces. */
 .mobile-status-row{position:relative}.turn-banner-slot{min-height:55px;display:grid;place-items:center}.action-dock{position:relative;z-index:20}.betting-badge{display:none}
 .player-status-row{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}.player-status-row .turn-pill{margin-left:0;margin-right:0}.fold-leave-button{padding:8px 13px;border:2px solid #ff8a82;border-radius:14px;background:#fff;color:#c73535;box-shadow:0 4px 10px #8c343326;font-size:12px}.fold-leave-button:hover{background:#fff1ef}
+.current-hand-name{padding:5px 12px;border:2px solid #ffd447;border-radius:14px;background:#fff9d9;color:#6e5700;font-weight:900;box-shadow:0 4px 10px #8c6b1926}.current-hand-name b{color:#0c315e}.tournament-champion{display:block;margin-bottom:3px;color:#a66b00;font-size:18px}.player-row.eliminated,.mobile-player.eliminated{opacity:.58;filter:grayscale(1)}
 
 @media(min-width:761px){
   .game{padding:10px 18px 18px;min-height:100dvh;overflow-x:hidden}

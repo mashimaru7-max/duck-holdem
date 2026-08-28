@@ -7,13 +7,14 @@ export type ActionKind = 'fold'|'check'|'call'|'raise'|'allin';
 export interface PublicPlayer {
   id:string; nickname:string; seat:number; stack:number; ready:boolean; connected:boolean;
   folded:boolean; allIn:boolean; streetBet:number; totalContribution:number; lastAction?:string;
-  cardsVisible?:Card[]; raiseAllowed?:boolean;
+  cardsVisible?:Card[]; raiseAllowed?:boolean; eliminated?:boolean;
 }
 export interface GameView {
   roomCode:string; hostId:string; status:Street; version:number; handId?:string;
   dealerSeat?:number; sbSeat?:number; bbSeat?:number; actionSeat?:number;
   board:Card[]; pot:number; currentBet:number; minRaise:number; deadlineAt?:number;
   players:PublicPlayer[]; myPlayerId:string; myCards:Card[]; isSpectator:boolean; spectatorCount:number;
+  myHandName?:string; tournamentWinnerId?:string;
   result?:{winners:{playerId:string;amount:number;handName:string}[];refunds?:{playerId:string;amount:number}[];reason:'showdown'|'fold';revealDecision?:'shown'|'hidden'};
 }
 export interface RoomSummary {

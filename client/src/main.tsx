@@ -11,6 +11,8 @@ import type {
 import "./styles.css";
 
 const WS = import.meta.env.VITE_WS_URL || "ws://localhost:8787/ws";
+const BIG_BLIND = 2;
+const DEFAULT_RAISE_TO = BIG_BLIND * 2;
 const ducks = ["😎", "🧢", "🤓", "🎧", "⚓", "🌻", "🔥", "😴"];
 const suit: Record<string, string> = { S: "♠", H: "♥", D: "♦", C: "♣" };
 const streetName: Record<GameView["status"], string> = {
@@ -22,6 +24,16 @@ const streetName: Record<GameView["status"], string> = {
   SHOWDOWN: "쇼다운",
   HAND_END: "게임 결과",
 };
+
+function makeRaiseOptions(minimum: number, maximum: number) {
+  if (maximum < minimum) return [];
+  const values = new Set<number>([minimum]);
+  if (DEFAULT_RAISE_TO >= minimum && DEFAULT_RAISE_TO <= maximum)
+    values.add(DEFAULT_RAISE_TO);
+  for (let amount = Math.ceil(minimum / 5) * 5; amount <= maximum; amount += 5)
+    values.add(amount);
+  return [...values].sort((left, right) => left - right);
+}
 
 function CardView({ card, empty = false }: { card?: Card; empty?: boolean }) {
   if (empty) return <div className="card empty">🦆</div>;
@@ -172,9 +184,12 @@ function App() {
     if (!player) return;
     const maximum = player.streetBet + player.stack;
     const legalMinimum = state.currentBet + state.minRaise;
-    const tickMinimum = Math.ceil(legalMinimum / 5) * 5;
-    const tickMaximum = Math.floor(maximum / 5) * 5;
-    setRaiseTo(tickMaximum >= tickMinimum ? tickMinimum : 0);
+    const options = makeRaiseOptions(legalMinimum, maximum);
+    setRaiseTo(
+      options.includes(DEFAULT_RAISE_TO)
+        ? DEFAULT_RAISE_TO
+        : (options[0] ?? 0),
+    );
   }, [state?.version, state?.myPlayerId, state?.isSpectator]);
 
   const send = (message: ClientMessage) =>
@@ -256,18 +271,18 @@ function App() {
             ) : (
               rooms.map((room) => (
                 <button
-                  className={`room-card ${room.status !== "WAITING" && room.status !== "HAND_END" ? "watch-room" : ""}`}
+                  className={`room-card ${room.status !== "WAITING" ? "watch-room" : ""}`}
                   key={room.roomCode}
                   disabled={!nickname}
-                  onClick={() => room.status === "WAITING" || room.status === "HAND_END" ? join(room.roomCode) : spectate(room.roomCode)}
+                  onClick={() => room.status === "WAITING" ? join(room.roomCode) : spectate(room.roomCode)}
                 >
                   <span className="room-duck">🏠</span>
                   <span>
                     <b>{room.hostNickname}의 방</b>
-                    <small>{room.status === "WAITING" ? "입장 가능" : room.status === "HAND_END" ? "게임 종료 · 입장 가능" : "게임 중 · 관전 가능"} · 방 {room.roomCode}</small>
+                    <small>{room.status === "WAITING" ? "입장 가능" : room.status === "HAND_END" ? "토너먼트 결과 · 관전 가능" : "토너먼트 진행 중 · 관전 가능"} · 방 {room.roomCode}</small>
                   </span>
                   <strong>
-                    {room.status === "WAITING" || room.status === "HAND_END" ? `${room.playerCount}/${room.capacity} 참가` : `👁 ${room.spectatorCount} · 관전`}
+                    {room.status === "WAITING" ? `${room.playerCount}/${room.capacity} 참가` : `👁 ${room.spectatorCount} · 관전`}
                   </strong>
                 </button>
               ))
@@ -283,6 +298,10 @@ function App() {
     );
 
   const me = state.players.find((player) => player.id === state.myPlayerId);
+  const isEliminated = me?.eliminated === true;
+  const tournamentWinner = state.players.find(
+    (player) => player.id === state.tournamentWinnerId,
+  );
   const turnPlayer = state.players.find(
     (player) => player.seat === state.actionSeat,
   );
@@ -294,12 +313,14 @@ function App() {
     : 0;
   const toCall = Math.max(0, state.currentBet - (me?.streetBet ?? 0));
   const legalRaiseMin = state.currentBet + state.minRaise;
-  const raiseMin = Math.ceil(legalRaiseMin / 5) * 5;
-  const raiseMax = Math.floor(
-    ((me?.streetBet ?? 0) + (me?.stack ?? 0)) / 5,
-  ) * 5;
+  const raiseOptions = makeRaiseOptions(
+    legalRaiseMin,
+    (me?.streetBet ?? 0) + (me?.stack ?? 0),
+  );
+  const raiseMin = raiseOptions[0] ?? 0;
+  const raiseMax = raiseOptions.at(-1) ?? 0;
   const raiseRightsOpen = me?.raiseAllowed !== false;
-  const canRaise = myTurn && raiseRightsOpen && raiseMax >= raiseMin;
+  const canRaise = myTurn && raiseRightsOpen && raiseOptions.length > 0;
   const canAllInRaise =
     myTurn && (raiseRightsOpen || (me?.stack ?? 0) <= toCall);
   const opponents = state.players
@@ -325,7 +346,9 @@ function App() {
       opponentSeatLayouts[opponents.length][index],
     ]),
   );
-  const tablePlayers = state.isSpectator ? state.players : opponents;
+  const tablePlayers = (state.isSpectator ? state.players : opponents).filter(
+    (player) => !player.eliminated,
+  );
   const visualSeatFor = (player: GameView["players"][number]) =>
     state.isSpectator ? player.seat : visualSeats.get(player.id) ?? player.seat;
   const act = (action: ActionKind, amount?: number) =>
@@ -347,9 +370,10 @@ function App() {
   const isFoldWinner =
     state.result?.reason === "fold" &&
     state.result.winners[0]?.playerId === state.myPlayerId;
-  const survivors = state.players.filter((player) => player.stack > 0).length;
   const isPlaying =
-    !state.isSpectator && !["WAITING", "HAND_END"].includes(state.status);
+    !state.isSpectator &&
+    !isEliminated &&
+    !["WAITING", "HAND_END"].includes(state.status);
   const leave = () => {
     if (
       isPlaying &&
@@ -427,7 +451,7 @@ function App() {
               <div className="mobile-player-list">
                 {state.players.map((player, index) => (
                   <div
-                    className={`mobile-player ${state.actionSeat === player.seat ? "acting" : ""}`}
+                    className={`mobile-player ${state.actionSeat === player.seat ? "acting" : ""} ${player.eliminated ? "eliminated" : ""}`}
                     key={player.id}
                   >
                     <span>{ducks[index % ducks.length]}</span>
@@ -435,7 +459,7 @@ function App() {
                       {player.nickname}
                       {player.id === state.hostId ? " 👑" : ""}
                     </b>
-                    <small>{player.stack}칩</small>
+                    <small>{player.eliminated ? "탈락" : `${player.stack}칩`}</small>
                     <i className={player.connected ? "on" : ""} />
                   </div>
                 ))}
@@ -506,27 +530,36 @@ function App() {
             })}
           </div>
           <div className={`mine ${state.isSpectator ? "spectator-mine" : ""}`}>
-            {!state.isSpectator && state.status !== "WAITING" && (
+            {!state.isSpectator && !isEliminated && state.status !== "WAITING" && (
               <div className="my-hand">
                 <span>내 카드 · {me?.stack ?? 0}칩</span>
                 <div className="hole">
                   <CardView card={state.myCards[0]} />
                   <CardView card={state.myCards[1]} />
                 </div>
+                {state.myHandName && (
+                  <small className="current-hand-name">
+                    현재 족보 · <b>{state.myHandName}</b>
+                  </small>
+                )}
               </div>
             )}
             <div className="player-status-row">
               <div className={`turn-pill ${myTurn ? "active" : ""}`}>
                 {state.isSpectator
-                  ? (state.status === "HAND_END" || state.status === "WAITING") && state.players.length < 8
-                    ? "관전 종료 · 빈 좌석에 참여할 수 있습니다"
+                  ? state.status === "HAND_END" && tournamentWinner && state.players.length < 8
+                    ? "토너먼트 종료 · 다음 대회에 참여할 수 있습니다"
                     : `👁 관전 중 · 관전자 ${state.spectatorCount}명`
                   : state.status === "WAITING"
                   ? state.hostId === state.myPlayerId
                     ? "2명 이상이면 게임을 시작할 수 있습니다"
                     : "방장이 게임을 시작할 때까지 기다려주세요"
                   : state.status === "HAND_END"
-                    ? "게임 종료 · 결과를 확인하세요"
+                    ? tournamentWinner
+                      ? `🏆 ${tournamentWinner.nickname} 토너먼트 우승!`
+                      : "이번 판 종료 · 다음 판을 준비하세요"
+                    : isEliminated
+                      ? "🏁 토너먼트 탈락 · 관전 중"
                     : allInRunout
                       ? "올인 · 카드를 순서대로 공개합니다"
                       : myTurn
@@ -542,7 +575,9 @@ function App() {
           </div>
           <div className={`actions action-dock ${myTurn ? "my-actions" : ""}`}>
             {state.isSpectator ? (
-              (state.status === "HAND_END" || state.status === "WAITING") && state.players.length < 8 ? <button className="yellow spectator-join" onClick={()=>send({type:"join_game",commandId:cmd()})}>게임 참여</button> : <button disabled>관전 중</button>
+              state.status === "HAND_END" && tournamentWinner && state.players.length < 8 ? <button className="yellow spectator-join" onClick={()=>send({type:"join_game",commandId:cmd()})}>다음 토너먼트 참여</button> : <button disabled>관전 중</button>
+            ) : isEliminated && state.status !== "HAND_END" ? (
+              <button disabled>🏁 토너먼트 탈락 · 관전 중</button>
             ) : state.status === "WAITING" ? (
               <>
                 {state.hostId === state.myPlayerId ? (
@@ -589,16 +624,18 @@ function App() {
                   <input
                     id="raise-slider"
                     type="range"
-                    min={canRaise ? raiseMin : 0}
-                    max={canRaise ? raiseMax : 0}
-                    step="5"
-                    value={canRaise ? raiseTo : 0}
+                    min="0"
+                    max={canRaise ? raiseOptions.length - 1 : 0}
+                    step="1"
+                    value={canRaise ? Math.max(0, raiseOptions.indexOf(raiseTo)) : 0}
                     disabled={!canRaise}
-                    onChange={(event) => setRaiseTo(Number(event.target.value))}
+                    onChange={(event) =>
+                      setRaiseTo(raiseOptions[Number(event.target.value)] ?? raiseMin)
+                    }
                   />
                   <div className="raise-scale" aria-hidden="true">
                     <span>{canRaise ? raiseMin : "-"}</span>
-                    <span>5칩 단위</span>
+                    <span>기본 2BB · 이후 5칩</span>
                     <span>{canRaise ? raiseMax : "-"}</span>
                   </div>
                 </div>
@@ -627,8 +664,13 @@ function App() {
           {state.status === "HAND_END" && state.result && (
             <section className="table-result">
               <div className="table-result-title">
-                <span>🏆</span>
+                <span>{tournamentWinner ? "👑" : "🏆"}</span>
                 <div>
+                  {tournamentWinner && (
+                    <strong className="tournament-champion">
+                      {tournamentWinner.nickname} 토너먼트 최종 우승!
+                    </strong>
+                  )}
                   <b>
                     {winners.map((winner) => winner.player?.nickname).join(", ")}{" "}
                     {winners.length > 1 ? "공동 승리!" : "승리!"}
@@ -667,14 +709,18 @@ function App() {
                       send({
                         type: "continue",
                         commandId: cmd(),
-                        reset: survivors < 2,
+                        reset: Boolean(tournamentWinner),
                       })
                     }
                   >
-                    {survivors < 2 ? "새 게임" : "다음 판"}
+                    {tournamentWinner ? "새 토너먼트" : "다음 판 시작"}
                   </button>
                 ) : (
-                  <small>방장이 다음 판을 준비하고 있습니다.</small>
+                  <small>
+                    {tournamentWinner
+                      ? "방장이 새 토너먼트를 준비하고 있습니다."
+                      : "방장이 다음 판을 시작할 때까지 기다려주세요."}
+                  </small>
                 )}
                 <button className="secondary" onClick={leave}>
                   로비로
@@ -694,7 +740,7 @@ function App() {
           </div>
           {state.players.map((player, index) => (
             <div
-              className={`player-row ${state.actionSeat === player.seat ? "acting" : ""}`}
+              className={`player-row ${state.actionSeat === player.seat ? "acting" : ""} ${player.eliminated ? "eliminated" : ""}`}
               key={player.id}
             >
               <span>{ducks[index % ducks.length]}</span>
@@ -702,7 +748,7 @@ function App() {
                 {player.nickname}
                 {player.id === state.hostId ? " 👑" : ""}
               </b>
-              <small>{player.stack}</small>
+              <small>{player.eliminated ? "탈락" : player.stack}</small>
               <i className={player.connected ? "on" : ""} />
               {state.hostId === state.myPlayerId &&
                 player.id !== state.myPlayerId &&

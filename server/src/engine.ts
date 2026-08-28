@@ -97,10 +97,11 @@ function commit(p: Player, amount: number) {
   return paid;
 }
 function active(p: Player) {
-  return !p.folded && !p.allIn;
+  return p.connected && p.stack > 0 && !p.folded && !p.allIn;
 }
 export function startHand(room: Room, random = Math.random) {
-  if (room.players.length < 2)
+  const entrants = room.players.filter((player) => player.connected && player.stack > 0);
+  if (entrants.length < 2)
     throw new Error("게임 시작에는 2명 이상이 필요합니다.");
   room.handId = randomUUID();
   room.status = "PREFLOP";
@@ -112,26 +113,28 @@ export function startHand(room: Room, random = Math.random) {
   room.minRaise = 2;
   room.result = undefined;
   room.players.forEach((p) => {
-    p.folded = false;
-    p.allIn = false;
+    const eliminated = !p.connected || p.stack <= 0;
+    p.folded = eliminated;
+    p.allIn = eliminated;
     p.streetBet = 0;
     p.totalContribution = 0;
-    p.holeCards = [room.deck.pop()!, room.deck.pop()!];
+    p.holeCards = eliminated ? [] : [room.deck.pop()!, room.deck.pop()!];
     p.acted = false;
     p.lastAction = undefined;
   });
-  room.dealerSeat = nextSeat(room, room.dealerSeat);
-  if (room.players.length === 2) {
+  const eligible = (player: Player) => player.connected && player.stack > 0;
+  room.dealerSeat = nextSeat(room, room.dealerSeat, eligible);
+  if (entrants.length === 2) {
     room.sbSeat = room.dealerSeat;
-    room.bbSeat = nextSeat(room, room.sbSeat);
+    room.bbSeat = nextSeat(room, room.sbSeat, eligible);
   } else {
-    room.sbSeat = nextSeat(room, room.dealerSeat);
-    room.bbSeat = nextSeat(room, room.sbSeat);
+    room.sbSeat = nextSeat(room, room.dealerSeat, eligible);
+    room.bbSeat = nextSeat(room, room.sbSeat, eligible);
   }
   commit(room.players.find((p) => p.seat === room.sbSeat)!, 1);
   commit(room.players.find((p) => p.seat === room.bbSeat)!, 2);
   room.actionSeat =
-    room.players.length === 2
+    entrants.length === 2
       ? room.sbSeat
       : nextSeat(room, room.bbSeat, active);
   room.deadlineAt = Date.now() + 60_000;
@@ -250,8 +253,6 @@ export function continueAfterHand(room: Room, reset: boolean) {
   room.players = room.players.filter((p) => p.connected);
   if (reset) {
     room.players.forEach((p) => (p.stack = 100));
-  } else {
-    room.players = room.players.filter((p) => p.stack > 0);
   }
   if (!room.players.some((p) => p.id === room.hostId) && room.players.length)
     room.hostId = room.players.sort((a, b) => a.seat - b.seat)[0].id;
@@ -275,6 +276,26 @@ export function continueAfterHand(room: Room, reset: boolean) {
     p.acted = false;
     p.lastAction = undefined;
   });
+}
+
+const rankLabel: Record<string, string> = {
+  A: "A", K: "K", Q: "Q", J: "J", T: "10",
+  "9": "9", "8": "8", "7": "7", "6": "6", "5": "5",
+  "4": "4", "3": "3", "2": "2",
+};
+function currentHandName(cards: Card[]) {
+  if (cards.length >= 5) return evaluate(cards).name;
+  if (!cards.length) return undefined;
+  const counts = new Map<string, number>();
+  for (const card of cards) counts.set(card[0], (counts.get(card[0]) ?? 0) + 1);
+  const groups = [...counts.values()].sort((left, right) => right - left);
+  if (groups[0] === 4) return "포카드";
+  if (groups[0] === 3) return "트리플";
+  if (groups.filter((count) => count === 2).length >= 2) return "투페어";
+  if (groups[0] === 2) return "원페어";
+  const order = "23456789TJQKA";
+  const high = [...cards].sort((left, right) => order.indexOf(right[0]) - order.indexOf(left[0]))[0];
+  return `${rankLabel[high[0]]} 하이`;
 }
 function reveal(room: Room, count: number) {
   for (let i = 0; i < count; i++) room.board.push(room.deck.pop()!);
@@ -468,6 +489,11 @@ export function expireTurn(room: Room, now = Date.now()) {
   return true;
 }
 export function viewFor(room: Room, me: Player): GameView {
+  const revealRunoutCards =
+    ["PREFLOP", "FLOP", "TURN", "RIVER"].includes(room.status) &&
+    room.actionSeat === undefined &&
+    contenders(room).length > 1 &&
+    room.players.filter(active).length <= 1;
   return {
     roomCode: room.code,
     hostId: room.hostId,
@@ -487,20 +513,29 @@ export function viewFor(room: Room, me: Player): GameView {
       ...p,
       holeCards: undefined,
       sessionId: undefined,
+      eliminated:
+        p.stack <= 0 &&
+        (room.status === "HAND_END" || p.holeCards.length === 0),
       raiseAllowed: !p.acted,
       acted: undefined,
       cardsVisible:
-        room.status === "HAND_END" &&
         !p.folded &&
-        (room.result?.reason === "showdown" ||
-          (room.result?.reason === "fold" &&
-            room.result.revealDecision === "shown" &&
-            room.result.winners[0]?.playerId === p.id))
+        (revealRunoutCards ||
+          (room.status === "HAND_END" &&
+            (room.result?.reason === "showdown" ||
+              (room.result?.reason === "fold" &&
+                room.result.revealDecision === "shown" &&
+                room.result.winners[0]?.playerId === p.id))))
           ? p.holeCards
           : undefined,
     })),
     myPlayerId: me.id,
     myCards: me.holeCards,
+    myHandName: !me.folded && me.stack >= 0 ? currentHandName([...me.holeCards, ...room.board]) : undefined,
+    tournamentWinnerId:
+      room.status === "HAND_END" && room.players.filter((player) => player.connected && player.stack > 0).length === 1
+        ? room.players.find((player) => player.connected && player.stack > 0)?.id
+        : undefined,
     isSpectator: false,
     spectatorCount: 0,
     result: room.result,
